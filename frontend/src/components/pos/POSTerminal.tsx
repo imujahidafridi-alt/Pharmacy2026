@@ -260,8 +260,10 @@ export function POSTerminal() {
       const nearestBatch = validBatches[0];
 
       const packSize = medicine.pack_size || 1;
+      // Sale rate is always per base unit. MRP/TP are per pack, so convert MRP for display.
       const unitPrice = Number(medicine.sale_price || nearestBatch.sale_rate || 0);
-      const baseMrp = Number(medicine.mrp || nearestBatch.sale_rate || unitPrice);
+      const packMrp = Number(medicine.mrp || 0);
+      const baseMrp = packMrp > 0 ? Math.round((packMrp / packSize) * 100) / 100 : unitPrice;
       const costPrice = Number(nearestBatch.purchase_rate || medicine.cost_price || 0);
       const inputQty = parsedCmd ? parsedCmd.qty : 1;
 
@@ -295,7 +297,7 @@ export function POSTerminal() {
           expiry_status: nearestBatch.expiry_status,
           pack_size: packSize,
           unit_type: 'Unit',
-          pack_price: unitPrice,
+          pack_price: Math.round(unitPrice * packSize * 100) / 100,
           unit_price: unitPrice,
           cost_price: costPrice,
           mrp: baseMrp,
@@ -496,7 +498,7 @@ export function POSTerminal() {
       it.expiry_date = selectedBatch.expiry_date;
       it.expiry_status = selectedBatch.expiry_status;
       it.unit_price = selectedBatch.sale_rate;
-      it.pack_price = selectedBatch.sale_rate;
+      it.pack_price = Math.round(selectedBatch.sale_rate * (it.pack_size || 1) * 100) / 100;
       it.mrp = selectedBatch.sale_rate;
       it.cost_price = Number(selectedBatch.purchase_rate || it.cost_price || 0);
       it.max_stock = selectedBatch.quantity;

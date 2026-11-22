@@ -20,6 +20,24 @@ void Database::close() {
     }
 }
 
+// Canonical price basis: purchase cost (TP) and MRP are per pack; batch sale_rate
+// and medicine sale_price are per base unit because the POS always sells in base units.
+static void normalizePriceBasis(Database& db) {
+    // First normalize legacy batch rates (per pack -> per unit) for medicines that
+    // never had a per-unit sale price (seeded items), then fill in their master prices.
+    db.execute("UPDATE batches SET sale_rate = ROUND(sale_rate / CASE WHEN "
+               "(SELECT pack_size FROM medicines WHERE id = batches.medicine_id) > 1 THEN "
+               "(SELECT pack_size FROM medicines WHERE id = batches.medicine_id) ELSE 1 END, 2) "
+               "WHERE medicine_id IN (SELECT id FROM medicines WHERE COALESCE(sale_price, 0) = 0);");
+    db.execute("UPDATE medicines SET "
+               "cost_price = COALESCE((SELECT purchase_rate FROM batches WHERE medicine_id = medicines.id ORDER BY id LIMIT 1), 0), "
+               "sale_price = COALESCE((SELECT sale_rate FROM batches WHERE medicine_id = medicines.id ORDER BY id LIMIT 1), 0), "
+               "mrp = ROUND(COALESCE((SELECT sale_rate FROM batches WHERE medicine_id = medicines.id ORDER BY id LIMIT 1), 0) * "
+               "CASE WHEN pack_size > 1 THEN pack_size ELSE 1 END * 1.05, 2) "
+               "WHERE COALESCE(sale_price, 0) = 0;");
+    db.execute("INSERT OR REPLACE INTO settings (key, value) VALUES ('price_basis_unit_sale', '1');");
+}
+
 bool Database::initialize(const std::string& dbPath) {
     std::lock_guard<std::mutex> lock(dbMutex);
     int rc = sqlite3_open(dbPath.c_str(), &db);
@@ -328,6 +346,13 @@ bool Database::createTables() {
     };
     if (hasColumn("invoices", "doctor_name")) execute("ALTER TABLE invoices DROP COLUMN doctor_name;");
     if (hasColumn("invoices", "notes")) execute("ALTER TABLE invoices DROP COLUMN notes;");
+
+    // Migrate an existing database that still stores per-pack batch sale rates.
+    json legacy = query("SELECT value FROM settings WHERE key = 'price_basis_unit_sale';");
+    json needsNorm = query("SELECT COUNT(*) AS c FROM medicines WHERE COALESCE(sale_price, 0) = 0;");
+    if (legacy.empty() && !needsNorm.empty() && needsNorm[0]["c"].get<int>() > 0) {
+        normalizePriceBasis(*this);
+    }
     return ok;
 }
 
@@ -553,14 +578,9 @@ bool Database::updateMedicine(int id, const json& m) {
     sqlite3_finalize(stmt);
     if (rc != SQLITE_DONE) return false;
 
-    // Update prices on existing batches
-    if (salePrice > 0) {
-        double costToSet = costPrice > 0 ? costPrice : salePrice * 0.8;
-        std::string updateBatchSql = "UPDATE batches SET sale_rate = " + std::to_string(salePrice) + 
-                                     ", purchase_rate = " + std::to_string(costToSet) + 
-                                     " WHERE medicine_id = " + std::to_string(id) + ";";
-        execute(updateBatchSql);
-    }
+    // NOTE: Batch purchase_rate/sale_rate are owned by GRN and are deliberately NOT
+    // overwritten when the medicine master is edited. Each batch can have a different
+    // purchase cost; replacing them all used to corrupt the below-cost guard.
 
     // Direct Stock Adjustment from Edit Modal
     if (m.contains("current_stock") || m.contains("total_stock")) {
@@ -1349,17 +1369,21 @@ json Database::createPurchase(const json& p) {
         int multiplier = (unitType == "Pack" && packSize > 1) ? packSize : 1;
         int totalBaseQty = (qty + bonus) * multiplier;
 
+        // Purchase cost (purchase_rate) is kept per pack; sale_rate is normalized to
+        // one base unit because the POS always sells in base units.
+        double batchSaleRate = (unitType == "Pack" && packSize > 1) ? (sRate / packSize) : sRate;
+
         // Check if batch already exists
         std::string chkSql = "SELECT id FROM batches WHERE medicine_id = " + std::to_string(medId) + " AND batch_number = '" + batchNo + "';";
         json bRes = query(chkSql);
         if (!bRes.empty()) {
             int existingBatchId = bRes[0]["id"].get<int>();
             execute("UPDATE batches SET quantity = quantity + " + std::to_string(totalBaseQty) + ", purchase_rate = " + std::to_string(pRate) +
-                    ", sale_rate = " + std::to_string(sRate) + ", expiry_date = '" + expiry + "' WHERE id = " + std::to_string(existingBatchId));
+                    ", sale_rate = " + std::to_string(batchSaleRate) + ", expiry_date = '" + expiry + "' WHERE id = " + std::to_string(existingBatchId));
         } else {
             execute("INSERT INTO batches (medicine_id, batch_number, expiry_date, purchase_rate, sale_rate, quantity) VALUES (" +
                     std::to_string(medId) + ", '" + batchNo + "', '" + expiry + "', " + std::to_string(pRate) + ", " +
-                    std::to_string(sRate) + ", " + std::to_string(totalBaseQty) + ");");
+                    std::to_string(batchSaleRate) + ", " + std::to_string(totalBaseQty) + ");");
         }
 
         // Insert Purchase Item
@@ -1715,6 +1739,9 @@ void Database::seedInitialDataIfNeeded() {
 
     // Seed Daybook Opening Cash Drawer Float
     execute("INSERT INTO daybook (date, entry_type, amount, direction, notes) VALUES ('" + dt + "', 'OPENING_FLOAT', 15000.0, 'IN', 'Morning Shift Cash Float in Drawer');");
+
+    // Convert seeded per-pack sale rates into the canonical per-unit basis
+    normalizePriceBasis(*this);
 
     std::cout << "[Seed] Pharmacy database seeded successfully with 18 medicines, 21 batches, customers, suppliers, and ledgers." << std::endl;
 }

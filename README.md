@@ -21,9 +21,10 @@ A production-ready, ultra-fast Pharmacy Management Application combining a high-
 - **FEFO Batch Resolution**:
   - Automatically picks the nearest non-expired batch for each item.
   - Supports quick interactive batch selection override.
-- **Flexible Packaging Units**:
-  - Sell by full **Pack / Box**, or toggle to **Loose Tablets / Capsules**.
-  - Proportional pricing automatically calculates `Sale Rate ÷ Pack Size`.
+- **Price Basis (Purchase in Pack, Sell in Base)**:
+  - Purchase cost (TP), GRN rates and printed MRP are recorded **per pack**; the POS always sells **per base unit** (tablet/capsule).
+  - Pack size is the only conversion factor: `cost per unit = TP ÷ pack size`, `pack price = unit sale rate × pack size`.
+  - Batch-level purchase/sale rates belong to GRN and are never overwritten when a medicine master is edited.
 - **Safety Lock Guardrail**: Expired medicines are strictly barred from being billed.
 - **Bill Parking / Holding**: Suspend an active customer cart (`F4`), serve the next customer, and resume (`Parked Bills`) at any time without data loss.
 - **Sales Return & Restocking**: Full return against invoice number, restocking batches, and refund daybook accounting.

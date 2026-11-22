@@ -116,16 +116,25 @@ export function ItemEditorModal({
 
   if (!isOpen) return null;
 
-  // Live Calculations for MRP Discount and Store Margin
+  // Price basis: COST (TP) and MRP are per pack; SALE is per base unit.
+  // Pack size converts between the purchase basis and the selling basis.
   const numMrp = parseFloat(mrpStr) || 0;
   const numSale = parseFloat(salePriceStr) || 0;
   const numCost = parseFloat(costPriceStr) || 0;
+  const numPack = parseInt(packSizeStr, 10) || 1;
 
-  const customerDiscountRs = numMrp > numSale && numSale > 0 ? numMrp - numSale : 0;
-  const customerDiscountPct = numMrp > 0 && customerDiscountRs > 0 ? (customerDiscountRs / numMrp) * 100 : 0;
+  const costPerUnit = numPack > 0 ? numCost / numPack : numCost;
+  const mrpPerUnit = numPack > 0 ? numMrp / numPack : numMrp;
+  const salePerPack = numSale * numPack;
 
-  const storeProfitRs = numSale > numCost && numCost > 0 ? numSale - numCost : 0;
+  const customerDiscountRs = mrpPerUnit > numSale && numSale > 0 ? mrpPerUnit - numSale : 0;
+  const customerDiscountPct = mrpPerUnit > 0 && customerDiscountRs > 0 ? (customerDiscountRs / mrpPerUnit) * 100 : 0;
+
+  const storeProfitRs = numSale > costPerUnit && costPerUnit > 0 ? numSale - costPerUnit : 0;
   const storeMarginPct = numSale > 0 && storeProfitRs > 0 ? (storeProfitRs / numSale) * 100 : 0;
+
+  const isBelowCost = numSale > 0 && costPerUnit > 0 && numSale < costPerUnit;
+  const isAboveMrp = numMrp > 0 && salePerPack > numMrp;
 
   // Handle Form Submission
   const handleSubmit = async (e: React.FormEvent) => {
@@ -154,6 +163,21 @@ export function ItemEditorModal({
 
     if (packVal < 1) {
       setErrorMessage('Pack size must be at least 1.');
+      return;
+    }
+
+    // Cost/TP is per pack, sale is per base unit. Compare on the same basis.
+    const costPerUnitPrice = packVal > 0 ? costVal / packVal : costVal;
+    if (saleVal > 0 && costPerUnitPrice > 0 && saleVal < costPerUnitPrice) {
+      setErrorMessage(
+        `Sale price (Rs. ${saleVal.toFixed(2)}/unit) is below purchase cost (Rs. ${costPerUnitPrice.toFixed(2)}/unit).`
+      );
+      return;
+    }
+    if (mrpVal > 0 && saleVal * packVal > mrpVal + 0.001) {
+      setErrorMessage(
+        `Sale price per pack (Rs. ${(saleVal * packVal).toFixed(2)}) exceeds MRP (Rs. ${mrpVal.toFixed(2)}).`
+      );
       return;
     }
 
@@ -423,7 +447,7 @@ export function ItemEditorModal({
                     }}
                   />
                   <span className="small text-muted" style={{ fontSize: '11px' }}>
-                    Units per pack / box (e.g. 2 for 2-strip box, 1 for bottle)
+                    Base units per purchase pack/box (e.g. 14 for a 2×7 strip box, 1 for bottle)
                   </span>
                 </div>
               </div>
@@ -464,7 +488,7 @@ export function ItemEditorModal({
               {/* 8. Cost Price (TP) */}
               <div className="desktop-form-row">
                 <label className="desktop-form-label">
-                  Cost Price (TP)
+                  Cost Price (TP) <span className="text-muted">— per pack</span>
                 </label>
                 <div className="desktop-form-control d-flex align-items-center gap-2">
                   <input
@@ -489,7 +513,7 @@ export function ItemEditorModal({
                     }}
                   />
                   <span className="small text-muted" style={{ fontSize: '11px' }}>
-                    Purchase cost (TP) from distributor
+                    Distributor cost for one full pack = Rs. {costPerUnit.toFixed(2)}/unit
                   </span>
                 </div>
               </div>
@@ -497,7 +521,7 @@ export function ItemEditorModal({
               {/* 9. Retail Price (MRP) */}
               <div className="desktop-form-row">
                 <label className="desktop-form-label">
-                  Retail Price (MRP) <span className="text-danger">*</span>
+                  Retail Price (MRP) <span className="text-muted">— per pack</span> <span className="text-danger">*</span>
                 </label>
                 <div className="desktop-form-control d-flex align-items-center gap-2">
                   <input
@@ -510,9 +534,10 @@ export function ItemEditorModal({
                     onChange={(e) => {
                       const clean = e.target.value.replace(/[^0-9.]/g, '');
                       setMrpStr(clean);
-                      // If new item and sale price not manually set yet, auto-populate sale price with MRP
+                      // MRP is per pack, but the POS sells per base unit -> divide by pack size
                       if (!isEditMode && (!salePriceStr || salePriceStr === '0.00' || salePriceStr === mrpStr)) {
-                        setSalePriceStr(clean);
+                        const unitRate = Number(clean) / (parseInt(packSizeStr, 10) || 1);
+                        setSalePriceStr(unitRate > 0 ? unitRate.toFixed(2) : '0.00');
                       }
                     }}
                     onBlur={() => {
@@ -527,7 +552,7 @@ export function ItemEditorModal({
                     }}
                   />
                   <span className="small text-muted" style={{ fontSize: '11px' }}>
-                    Manufacturer printed retail price on box
+                    Printed retail price on the box = Rs. {mrpPerUnit.toFixed(2)}/unit
                   </span>
                 </div>
               </div>
@@ -535,7 +560,7 @@ export function ItemEditorModal({
               {/* 10. Sale Price (POS Dokan Rate) */}
               <div className="desktop-form-row">
                 <label className="desktop-form-label fw-bold" style={{ color: 'var(--brand-teal)' }}>
-                  Sale Price (POS Rate) <span className="text-danger">*</span>
+                  Sale Price (POS Rate) <span className="text-muted">— per base unit</span> <span className="text-danger">*</span>
                 </label>
                 <div className="desktop-form-control d-flex align-items-center gap-2">
                   <input
@@ -562,34 +587,48 @@ export function ItemEditorModal({
                     }}
                   />
                   <span className="small text-muted" style={{ fontSize: '11px' }}>
-                    Discounted counter rate charged at POS
+                    Charged per tablet/unit at the counter = Rs. {salePerPack.toFixed(2)}/pack
                   </span>
                 </div>
               </div>
 
-              {/* Live Real-time Calculation Insight */}
-              {(customerDiscountRs > 0 || storeProfitRs > 0) && (
-                <div className="desktop-form-row mb-2">
-                  <div className="desktop-form-label"></div>
-                  <div className="desktop-form-control d-flex align-items-center gap-2 flex-wrap">
-                    {customerDiscountRs > 0 ? (
-                      <span className="badge bg-success-subtle text-success border border-success-subtle px-2 py-1" style={{ fontSize: '11px' }}>
-                        🎁 Customer Discount: Rs. {customerDiscountRs.toFixed(2)} ({customerDiscountPct.toFixed(1)}% OFF printed MRP)
-                      </span>
-                    ) : (
-                      <span className="small text-muted" style={{ fontSize: '10.5px' }}>
-                        Sold at full printed MRP
-                      </span>
-                    )}
+              {/* Live Price-Basis Insight (cost/MRP per pack, sale per base unit) */}
+              <div className="desktop-form-row mb-2">
+                <div className="desktop-form-label"></div>
+                <div className="desktop-form-control d-flex align-items-center gap-2 flex-wrap">
+                  <span className="badge bg-secondary-subtle text-secondary border px-2 py-1" style={{ fontSize: '11px' }}>
+                    📦 {numPack} units/pack · Cost Rs. {costPerUnit.toFixed(2)}/unit · MRP Rs. {mrpPerUnit.toFixed(2)}/unit
+                  </span>
 
-                    {storeProfitRs > 0 && (
-                      <span className="badge bg-teal-subtle text-teal border border-teal-subtle px-2 py-1" style={{ fontSize: '11px', color: 'var(--brand-teal)' }}>
-                        📈 Store Profit: Rs. {storeProfitRs.toFixed(2)} ({storeMarginPct.toFixed(1)}% margin)
-                      </span>
-                    )}
-                  </div>
+                  {customerDiscountRs > 0 ? (
+                    <span className="badge bg-success-subtle text-success border border-success-subtle px-2 py-1" style={{ fontSize: '11px' }}>
+                      🎁 Customer Discount: Rs. {customerDiscountRs.toFixed(2)}/unit ({customerDiscountPct.toFixed(1)}% OFF)
+                    </span>
+                  ) : (
+                    <span className="small text-muted" style={{ fontSize: '10.5px' }}>
+                      Sold at full printed MRP
+                    </span>
+                  )}
+
+                  {storeProfitRs > 0 && (
+                    <span className="badge bg-teal-subtle text-teal border border-teal-subtle px-2 py-1" style={{ fontSize: '11px', color: 'var(--brand-teal)' }}>
+                      📈 Store Profit: Rs. {storeProfitRs.toFixed(2)}/unit ({storeMarginPct.toFixed(1)}% margin)
+                    </span>
+                  )}
+
+                  {isBelowCost && (
+                    <span className="badge text-bg-danger px-2 py-1" style={{ fontSize: '11px' }}>
+                      ⚠️ Below cost: selling Rs. {numSale.toFixed(2)} vs cost Rs. {costPerUnit.toFixed(2)} per unit
+                    </span>
+                  )}
+
+                  {isAboveMrp && (
+                    <span className="badge text-bg-warning px-2 py-1" style={{ fontSize: '11px' }}>
+                      ⚠️ Sale per pack (Rs. {salePerPack.toFixed(2)}) is above MRP
+                    </span>
+                  )}
                 </div>
-              )}
+              </div>
 
               {/* 10. Low Stock Alert & Prescription switch */}
               <div className="desktop-form-row">

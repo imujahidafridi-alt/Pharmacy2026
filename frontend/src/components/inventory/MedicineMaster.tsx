@@ -440,9 +440,11 @@ export function MedicineMaster() {
                 const sale = Number(med.sale_price || med.min_sale_rate || 0);
                 const mrp = Number(med.mrp || sale);
 
+                // TP is per pack, sale is per base unit -> compare on the same basis
+                const costPerUnit = (med.pack_size || 1) > 0 ? cost / (med.pack_size || 1) : cost;
                 let marginPct = 0;
-                if (sale > 0 && cost > 0) {
-                  marginPct = ((sale - cost) / sale) * 100;
+                if (sale > 0 && costPerUnit > 0) {
+                  marginPct = ((sale - costPerUnit) / sale) * 100;
                 }
 
                 const brandName = med.brand || med.manufacturer || '';
