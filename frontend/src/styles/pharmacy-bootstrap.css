@@ -1172,9 +1172,39 @@ body {
 }
 
 .input-group-text {
-  background-color: var(--surface-subtle) !important;
+  background-color: var(--input-bg) !important;
   border-color: var(--input-border) !important;
-  color: var(--text-secondary) !important;
+  color: var(--text-muted) !important;
+  font-weight: 600 !important;
+}
+
+/* Joined input groups read as one continuous control (no broken corners) */
+.input-group > .form-control,
+.input-group > .form-select {
+  border-radius: 0 !important;
+}
+
+.input-group > :first-child {
+  border-top-left-radius: 9px !important;
+  border-bottom-left-radius: 9px !important;
+}
+
+.input-group > :last-child {
+  border-top-right-radius: 9px !important;
+  border-bottom-right-radius: 9px !important;
+}
+
+.input-group > .input-group-text:not(:last-child) {
+  border-right: 1px solid var(--border-color) !important;
+}
+
+.input-group:focus-within {
+  box-shadow: 0 0 0 3px rgba(18, 181, 151, 0.16) !important;
+  border-radius: 9px !important;
+}
+
+.input-group:focus-within .form-control:focus {
+  box-shadow: none !important;
 }
 
 /* Primary call to action */
