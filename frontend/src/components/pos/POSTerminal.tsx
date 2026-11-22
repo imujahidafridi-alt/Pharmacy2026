@@ -857,6 +857,7 @@ export function POSTerminal() {
   const changeToReturn = numCashReceived > grandTotal ? numCashReceived - grandTotal : 0;
   const remainingDue = grandTotal > numCashReceived && numCashReceived > 0 ? grandTotal - numCashReceived : 0;
   const selectedCartItem = selectedRowIndex >= 0 && cart[selectedRowIndex] ? cart[selectedRowIndex] : null;
+  const isCreditContext = paymentMode === 'CREDIT' || !!selectedCustomer;
 
   return (
     <div
@@ -894,32 +895,18 @@ export function POSTerminal() {
           )}
         </div>
 
-        {/* Right: Operational Status & Shortcuts Guide (No redundant Customer Info) */}
+        {/* Right: current sale context only (counter/user are in the top bar) */}
         <div className="d-flex align-items-center gap-2">
           <span
             className="badge"
             style={{
               fontSize: '10px',
-              backgroundColor: 'var(--surface-subtle)',
-              color: 'var(--text-secondary)',
-              border: '1px solid var(--border-color)',
+              backgroundColor: isCreditContext ? 'rgba(217, 119, 6, 0.12)' : 'rgba(15, 118, 110, 0.12)',
+              color: isCreditContext ? '#D97706' : 'var(--brand-teal)',
+              border: `1px solid ${isCreditContext ? 'rgba(217, 119, 6, 0.25)' : 'rgba(15, 118, 110, 0.25)'}`,
             }}
           >
-            Counter: C01
-          </span>
-          <span
-            className="badge"
-            style={{
-              fontSize: '10px',
-              backgroundColor: selectedCustomer ? 'rgba(217, 119, 6, 0.12)' : 'rgba(15, 118, 110, 0.12)',
-              color: selectedCustomer ? '#D97706' : 'var(--brand-teal)',
-              border: `1px solid ${selectedCustomer ? 'rgba(217, 119, 6, 0.25)' : 'rgba(15, 118, 110, 0.25)'}`,
-            }}
-          >
-            {selectedCustomer ? 'Credit Khata Sale' : 'Cash Counter Sale'}
-          </span>
-          <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-            <kbd style={{ fontSize: '10px' }}>F1</kbd> Search &bull; <kbd style={{ fontSize: '10px' }}>F9</kbd> Pay
+            {isCreditContext ? 'Credit / Khata Sale' : `${paymentMode === 'ONLINE' ? 'Online' : 'Cash'} Sale`}
           </span>
         </div>
       </div>
@@ -1581,7 +1568,7 @@ export function POSTerminal() {
             </div>
           ) : (
             <span style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>
-              Ready to scan items. Keyboard: <kbd>F2</kbd> Qty, <kbd>F4</kbd> Disc, <kbd>F5</kbd> Customer, <kbd>F9</kbd> Pay.
+              No row selected — use <kbd>↑</kbd> <kbd>↓</kbd> to select a cart line.
             </span>
           )}
 

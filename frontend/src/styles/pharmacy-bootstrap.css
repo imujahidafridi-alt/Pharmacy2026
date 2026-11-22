@@ -1242,24 +1242,40 @@ body {
   background-color: var(--brand-teal-light) !important;
 }
 
-.pos-row-active,
+.pos-row-active {
+  background-color: var(--active-row-bg) !important;
+  color: var(--active-row-text) !important;
+}
+
 .pos-row-active td {
   background-color: var(--active-row-bg) !important;
   color: var(--active-row-text) !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+
+/* One single accent bar for the active row — never one per cell */
+.pos-row-active td:first-child {
   box-shadow: inset 3px 0 0 var(--brand-accent) !important;
 }
 
 /* Hotkey chips */
+kbd,
 .kbd,
 .pos-footer-btn kbd {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
   background-color: var(--brand-teal-light) !important;
   color: var(--brand-teal) !important;
   border: 1px solid transparent !important;
   border-radius: 6px !important;
   box-shadow: none !important;
+  padding: 2px 6px !important;
   font-family: var(--font-mono) !important;
   font-size: 10px !important;
   font-weight: 700 !important;
+  line-height: 1.1 !important;
 }
 
 .pos-footer-btn {
