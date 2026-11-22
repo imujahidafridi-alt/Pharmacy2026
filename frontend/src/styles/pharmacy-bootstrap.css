@@ -1356,3 +1356,10 @@ kbd,
   color: var(--brand-teal) !important;
   border: 1px solid var(--border-color) !important;
 }
+
+/* Placeholders must never read like entered values */
+::placeholder {
+  color: var(--text-muted) !important;
+  font-weight: 500 !important;
+  opacity: 1 !important;
+}

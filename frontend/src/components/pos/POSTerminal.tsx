@@ -1824,7 +1824,7 @@ export function POSTerminal() {
               type="text"
               inputMode="numeric"
               className="form-control font-monospace fw-bold text-end"
-              placeholder="0.00"
+              placeholder="Enter amount"
               value={cashReceivedStr}
               onFocus={(e) => e.target.select()}
               onChange={(e) => {
