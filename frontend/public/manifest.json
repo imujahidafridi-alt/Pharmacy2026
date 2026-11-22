@@ -1,0 +1,17 @@
+{
+  "name": "Pak Pharmacy & Retail POS — Counter Terminal",
+  "short_name": "Pak POS",
+  "description": "High-Performance Counter Terminal & Pharmacy ERP",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "landscape",
+  "background_color": "#F8FAFC",
+  "theme_color": "#0F766E",
+  "icons": [
+    {
+      "src": "/favicon.ico",
+      "sizes": "64x64 32x32 24x24 16x16",
+      "type": "image/x-icon"
+    }
+  ]
+}

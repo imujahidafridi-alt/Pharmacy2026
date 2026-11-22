@@ -1,0 +1,29 @@
+# Compiled binaries and object files
+*.exe
+*.o
+*.obj
+*.dll
+
+# Local SQLite database (runtime data, not source)
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+
+# Runtime logs
+*.log
+backend/err.txt
+backend/out.txt
+backend/server_log.txt
+
+# Build output
+backend/dist/
+frontend/dist/
+node_modules/
+
+# OS / editor noise
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
