@@ -43,17 +43,10 @@ const executablePath = fs.existsSync(EDGE_PATH) ? EDGE_PATH : CHROME_PATH;
   });
   console.log('Saved pos_cart_simplified_base_units.png');
 
-  // 2. Open Payment Modal & Confirm
+  // 2. Complete checkout directly from the right-side payment panel
   console.log('Testing F9 checkout...');
   await page.keyboard.press('F9');
-  await new Promise((r) => setTimeout(r, 800));
-
-  await page.evaluate(() => {
-    const btns = Array.from(document.querySelectorAll('button'));
-    const confirmBtn = btns.find((b) => b.textContent && b.textContent.includes('Confirm & Print Bill'));
-    if (confirmBtn) confirmBtn.click();
-  });
-  await new Promise((r) => setTimeout(r, 1200));
+  await new Promise((r) => setTimeout(r, 1500));
 
   // Screenshot Thermal Receipt Modal
   await page.screenshot({

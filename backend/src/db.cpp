@@ -220,7 +220,6 @@ bool Database::createTables() {
             date TEXT NOT NULL,
             customer_id INTEGER REFERENCES customers(id),
             customer_name TEXT,
-            doctor_name TEXT,
             subtotal REAL NOT NULL,
             discount_amount REAL DEFAULT 0.0,
             discount_percent REAL DEFAULT 0.0,
@@ -230,7 +229,6 @@ bool Database::createTables() {
             change_amount REAL DEFAULT 0.0,
             payment_mode TEXT NOT NULL,
             status TEXT DEFAULT 'COMPLETED',
-            notes TEXT,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP
         );
 
@@ -319,6 +317,17 @@ bool Database::createTables() {
     execute("ALTER TABLE medicines ADD COLUMN is_active INTEGER DEFAULT 1;");
     execute("ALTER TABLE medicines ADD COLUMN discount_rule INTEGER DEFAULT 0;");
     execute("ALTER TABLE medicines ADD COLUMN discount_pct REAL DEFAULT 0.0;");
+
+    // Drop legacy invoice metadata columns (doctor name / invoice notes)
+    auto hasColumn = [&](const std::string& table, const std::string& column) -> bool {
+        json cols = query("PRAGMA table_info(" + table + ");");
+        for (const auto& col : cols) {
+            if (col.value("name", "") == column) return true;
+        }
+        return false;
+    };
+    if (hasColumn("invoices", "doctor_name")) execute("ALTER TABLE invoices DROP COLUMN doctor_name;");
+    if (hasColumn("invoices", "notes")) execute("ALTER TABLE invoices DROP COLUMN notes;");
     return ok;
 }
 
@@ -720,7 +729,6 @@ json Database::createInvoice(const json& inv) {
 
     int customerId = inv.value("customer_id", 0);
     std::string customerName = inv.value("customer_name", "Walk-in Customer");
-    std::string doctorName = inv.value("doctor_name", "");
     double subtotal = inv.value("subtotal", 0.0);
     double discountAmount = inv.value("discount_amount", 0.0);
     double discountPercent = inv.value("discount_percent", 0.0);
@@ -729,15 +737,14 @@ json Database::createInvoice(const json& inv) {
     double paidAmount = inv.value("paid_amount", 0.0);
     double changeAmount = inv.value("change_amount", 0.0);
     std::string paymentMode = inv.value("payment_mode", "CASH");
-    std::string notes = inv.value("notes", "");
 
     // 1. Insert Invoice
     sqlite3_stmt* stmt;
     const char* insInvSql = R"(
-        INSERT INTO invoices (invoice_number, date, customer_id, customer_name, doctor_name, 
-                             subtotal, discount_amount, discount_percent, tax_amount, total_amount, 
-                             paid_amount, change_amount, payment_mode, status, notes)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'COMPLETED', ?);
+        INSERT INTO invoices (invoice_number, date, customer_id, customer_name,
+                             subtotal, discount_amount, discount_percent, tax_amount, total_amount,
+                             paid_amount, change_amount, payment_mode, status)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'COMPLETED');
     )";
     if (sqlite3_prepare_v2(db, insInvSql, -1, &stmt, nullptr) != SQLITE_OK) {
         rollback();
@@ -749,16 +756,14 @@ json Database::createInvoice(const json& inv) {
     if (customerId > 0) sqlite3_bind_int(stmt, 3, customerId);
     else sqlite3_bind_null(stmt, 3);
     sqlite3_bind_text(stmt, 4, customerName.c_str(), -1, SQLITE_TRANSIENT);
-    sqlite3_bind_text(stmt, 5, doctorName.c_str(), -1, SQLITE_TRANSIENT);
-    sqlite3_bind_double(stmt, 6, subtotal);
-    sqlite3_bind_double(stmt, 7, discountAmount);
-    sqlite3_bind_double(stmt, 8, discountPercent);
-    sqlite3_bind_double(stmt, 9, taxAmount);
-    sqlite3_bind_double(stmt, 10, totalAmount);
-    sqlite3_bind_double(stmt, 11, paidAmount);
-    sqlite3_bind_double(stmt, 12, changeAmount);
-    sqlite3_bind_text(stmt, 13, paymentMode.c_str(), -1, SQLITE_TRANSIENT);
-    sqlite3_bind_text(stmt, 14, notes.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_double(stmt, 5, subtotal);
+    sqlite3_bind_double(stmt, 6, discountAmount);
+    sqlite3_bind_double(stmt, 7, discountPercent);
+    sqlite3_bind_double(stmt, 8, taxAmount);
+    sqlite3_bind_double(stmt, 9, totalAmount);
+    sqlite3_bind_double(stmt, 10, paidAmount);
+    sqlite3_bind_double(stmt, 11, changeAmount);
+    sqlite3_bind_text(stmt, 12, paymentMode.c_str(), -1, SQLITE_TRANSIENT);
 
     if (sqlite3_step(stmt) != SQLITE_DONE) {
         sqlite3_finalize(stmt);
@@ -994,7 +999,7 @@ json Database::returnInvoice(int invoiceId, const std::string& reason) {
     }
 
     // 4. Update Invoice status
-    execute("UPDATE invoices SET status = 'RETURNED', notes = COALESCE(notes || ' | ', '') || 'Returned: " + reason + "' WHERE id = " + std::to_string(invoiceId));
+    execute("UPDATE invoices SET status = 'RETURNED' WHERE id = " + std::to_string(invoiceId));
 
     commit();
     return {{"success", true}, {"message", "Invoice successfully returned and stock replenished."}};

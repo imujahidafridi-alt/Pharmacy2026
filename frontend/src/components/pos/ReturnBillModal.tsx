@@ -58,7 +58,10 @@ export function ReturnBillModal({ isOpen, onClose }: ReturnBillModalProps) {
   // When invoice is selected, setup defaults
   useEffect(() => {
     if (foundInvoice) {
-      if (foundInvoice.payment_mode === 'KHATA' && foundInvoice.customer_id) {
+      if (
+        (foundInvoice.payment_mode === 'CREDIT' || foundInvoice.payment_mode === 'KHATA') &&
+        foundInvoice.customer_id
+      ) {
         setRefundMode('KHATA');
       } else {
         setRefundMode('CASH');

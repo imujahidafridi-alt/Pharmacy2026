@@ -27,7 +27,8 @@ A production-ready, ultra-fast Pharmacy Management Application combining a high-
 - **Safety Lock Guardrail**: Expired medicines are strictly barred from being billed.
 - **Bill Parking / Holding**: Suspend an active customer cart (`F4`), serve the next customer, and resume (`Parked Bills`) at any time without data loss.
 - **Sales Return & Restocking**: Full return against invoice number, restocking batches, and refund daybook accounting.
-- **Thermal Receipt Printing**: Printable 80mm ESC/POS thermal receipt with pharmacy branding, drug license number, doctor name, and Khata balance summary.
+- **Inline Payment Modes**: Cash, Online and Credit (Khata) are selected directly from the POS right-side panel — no separate payment dialog.
+- **Thermal Receipt Printing**: Printable 80mm ESC/POS thermal receipt with pharmacy branding, drug license number, and Khata balance summary.
 
 ### 3. Customers & Suppliers Khata (Credit & Ledger Accounting)
 - **Customer Khata (Udhar Management)**:

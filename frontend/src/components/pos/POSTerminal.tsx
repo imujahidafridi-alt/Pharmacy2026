@@ -3,7 +3,6 @@ import { CustomerSelectModal } from './CustomerSelectModal';
 import { BillDiscountModal } from './BillDiscountModal';
 import { MutabadilModal } from './MutabadilModal';
 import { BatchSelectorModal } from './BatchSelectorModal';
-import { PaymentModal } from './PaymentModal';
 import { BelowCostWarningModal, BelowCostItemWarning, getApplicableCost } from './BelowCostWarningModal';
 import { ThermalReceiptModal } from './ThermalReceiptModal';
 import { ParkedBillsModal } from './ParkedBillsModal';
@@ -78,7 +77,7 @@ function formatProductBrandDisplay(item: Medicine): string {
 }
 
 export function POSTerminal() {
-  const { formatCurrency } = useApp();
+  const { formatCurrency, refreshStats } = useApp();
   const toast = useToast();
 
   // Search Input & In-Place Table Mode State
@@ -97,6 +96,8 @@ export function POSTerminal() {
   const [taxPercent, setTaxPercent] = useState<number | string>(0);
   const [chillarRoundDiscount, setChillarRoundDiscount] = useState<number>(0);
   const [cashReceivedStr, setCashReceivedStr] = useState<string>('');
+  const [paymentMode, setPaymentMode] = useState<'CASH' | 'ONLINE' | 'CREDIT'>('CASH');
+  const [isProcessingCheckout, setIsProcessingCheckout] = useState<boolean>(false);
 
   // Bill Meta
   const [billNumber, setBillNumber] = useState<string>(() => {
@@ -108,7 +109,6 @@ export function POSTerminal() {
   // Customer Context
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [selectedCustomerId, setSelectedCustomerId] = useState<number | string>('');
-  const [doctorName, setDoctorName] = useState<string>('');
 
   // Held Bills Counter
   const [heldBillsCount, setHeldBillsCount] = useState<number>(0);
@@ -121,7 +121,6 @@ export function POSTerminal() {
   const [mutabadilCurrentItem, setMutabadilCurrentItem] = useState<{ name: string; price: number } | null>(null);
   const [batchModalMed, setBatchModalMed] = useState<Medicine | null>(null);
   const [activeCartIdxForBatch, setActiveCartIdxForBatch] = useState<number>(-1);
-  const [isPaymentModalOpen, setIsPaymentModalOpen] = useState<boolean>(false);
   const [isBelowCostModalOpen, setIsBelowCostModalOpen] = useState<boolean>(false);
   const [belowCostWarningItems, setBelowCostWarningItems] = useState<BelowCostItemWarning[]>([]);
   const [pendingCheckoutAfterWarning, setPendingCheckoutAfterWarning] = useState<boolean>(false);
@@ -226,8 +225,8 @@ export function POSTerminal() {
     setTaxPercent(0);
     setChillarRoundDiscount(0);
     setCashReceivedStr('');
+    setPaymentMode('CASH');
     setSelectedCustomerId('');
-    setDoctorName('');
     const today = new Date().toISOString().slice(0, 10).replace(/-/g, '');
     const rand = Math.floor(1000 + Math.random() * 9000);
     setBillNumber(`BILL-${today}-${rand}`);
@@ -508,6 +507,89 @@ export function POSTerminal() {
     }
   };
 
+  // Finalize the sale directly from the right-side payment panel
+  const handleCompleteCheckout = async () => {
+    if (cart.length === 0 || isProcessingCheckout) return;
+
+    if (paymentMode === 'CREDIT' && !selectedCustomerId) {
+      toast.error('Select a customer account (F5) for a Credit / Khata sale.');
+      setIsCustomerModalOpen(true);
+      return;
+    }
+
+    if (paymentMode === 'CREDIT' && selectedCustomer) {
+      const currentBalance = Number(selectedCustomer.balance ?? selectedCustomer.current_balance ?? 0);
+      const projectedBalance = currentBalance + grandTotal;
+      const creditLimit = Number(selectedCustomer.credit_limit || 10000);
+      if (projectedBalance > creditLimit) {
+        const proceed = window.confirm(
+          `Warning: Customer credit balance will reach ${formatCurrency(
+            projectedBalance
+          )}, exceeding their credit limit of ${formatCurrency(
+            creditLimit
+          )}. Authorize credit sale anyway?`
+        );
+        if (!proceed) return;
+      }
+    }
+
+    const paidAmount =
+      paymentMode === 'CREDIT'
+        ? 0
+        : paymentMode === 'ONLINE'
+        ? grandTotal
+        : numCashReceived > 0
+        ? Math.min(numCashReceived, grandTotal)
+        : grandTotal;
+    const changeAmount =
+      paymentMode === 'CASH' && numCashReceived > grandTotal
+        ? Math.round((numCashReceived - grandTotal) * 100) / 100
+        : 0;
+
+    setIsProcessingCheckout(true);
+    try {
+      const effectiveSubtotal = subtotal + totalMrpSavings;
+      const invoicePayload = {
+        customer_id: selectedCustomerId ? Number(selectedCustomerId) : 0,
+        customer_name: selectedCustomer ? selectedCustomer.name : 'Walk-in Customer',
+        subtotal: effectiveSubtotal > 0 ? effectiveSubtotal : subtotal,
+        discount_amount: totalDiscount + totalMrpSavings,
+        discount_percent: Number(discountPercent) || 0,
+        tax_amount: taxAmount,
+        total_amount: grandTotal,
+        paid_amount: paidAmount,
+        change_amount: changeAmount,
+        payment_mode: paymentMode,
+        items: cart.map((item) => ({
+          medicine_id: item.medicine_id,
+          batch_id: item.batch_id || 0,
+          medicine_name: item.name,
+          batch_number: item.batch_number || '',
+          expiry_date: item.expiry_date || '',
+          quantity: Number(item.quantity) || 1,
+          unit_type: 'Unit',
+          pack_size: 1,
+          unit_price: Number(item.unit_price) || 0,
+          discount_percent: Number(item.discount_percent) || 0,
+          total_price: Number(item.total) || 0,
+        })),
+      };
+
+      const result = await api.checkoutPOS(invoicePayload);
+      toast.success(`Invoice ${result.invoice_number} created successfully!`);
+      refreshStats();
+      setLastCompletedInvoice(result);
+      setCreatedInvoice(result);
+      setIsReceiptModalOpen(true);
+      resetBill();
+      searchInputRef.current?.focus();
+    } catch (err: any) {
+      toast.error(err.message || 'Checkout failed');
+    } finally {
+      setIsProcessingCheckout(false);
+    }
+  };
+
   // Initiate Checkout with Below-Cost Price Verification
   const handleInitiateCheckout = () => {
     if (cart.length === 0) {
@@ -559,7 +641,7 @@ export function POSTerminal() {
       return;
     }
 
-    setIsPaymentModalOpen(true);
+    void handleCompleteCheckout();
   };
 
   // Hold / Park Bill (F7)
@@ -645,7 +727,6 @@ export function POSTerminal() {
         isCustomerModalOpen ||
         isDiscountModalOpen ||
         isMutabadilModalOpen ||
-        isPaymentModalOpen ||
         isParkedModalOpen ||
         isReturnModalOpen ||
         isReceiptModalOpen ||
@@ -741,7 +822,6 @@ export function POSTerminal() {
     isCustomerModalOpen,
     isDiscountModalOpen,
     isMutabadilModalOpen,
-    isPaymentModalOpen,
     isParkedModalOpen,
     isReturnModalOpen,
     isReceiptModalOpen,
@@ -1659,7 +1739,53 @@ export function POSTerminal() {
           </div>
         </div>
 
-        {/* 3. Tender & Change Return Calculator */}
+        {/* 3. Payment Mode (Cash / Online / Credit) */}
+        <div
+          className="border rounded p-2"
+          style={{ backgroundColor: 'var(--surface-bg)', borderColor: 'var(--border-color)' }}
+        >
+          <div className="d-flex align-items-center justify-content-between mb-2">
+            <span className="fw-bold text-uppercase" style={{ fontSize: '10.5px', letterSpacing: '0.4px', color: 'var(--text-muted)' }}>
+              Payment Mode
+            </span>
+            <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>F9 to confirm</span>
+          </div>
+          <div className="d-flex gap-1">
+            {([
+              { id: 'CASH', label: 'Cash', icon: 'bi-cash' },
+              { id: 'ONLINE', label: 'Online', icon: 'bi-phone-fill' },
+              { id: 'CREDIT', label: 'Credit', icon: 'bi-journal-text' },
+            ] as const).map((mode) => (
+              <button
+                key={mode.id}
+                type="button"
+                className={`btn flex-grow-1 py-1 small fw-semibold d-flex align-items-center justify-content-center gap-1 ${
+                  paymentMode === mode.id ? 'btn-primary' : 'btn-outline-secondary'
+                }`}
+                onClick={() => {
+                  setPaymentMode(mode.id);
+                  if (mode.id === 'CREDIT' && !selectedCustomerId) {
+                    setIsCustomerModalOpen(true);
+                  }
+                  searchInputRef.current?.focus();
+                }}
+                style={{ fontSize: '11px' }}
+              >
+                <i className={`bi ${mode.icon}`}></i>
+                <span>{mode.label}</span>
+              </button>
+            ))}
+          </div>
+          {paymentMode === 'CREDIT' && (
+            <div className="mt-2 pt-1 border-top" style={{ fontSize: '10px', color: 'var(--text-muted)' }}>
+              {selectedCustomer
+                ? 'Full bill amount will be posted to this customer’s khata.'
+                : 'Select a customer (F5) to post this credit sale.'}
+            </div>
+          )}
+        </div>
+
+        {/* 4. Tender & Change Return Calculator */}
         <div
           className="border rounded p-2 d-flex flex-column gap-2"
           style={{
@@ -1670,9 +1796,9 @@ export function POSTerminal() {
         >
           <div className="d-flex align-items-center justify-content-between">
             <span className="fw-bold text-uppercase" style={{ fontSize: '10.5px', letterSpacing: '0.4px', color: 'var(--text-muted)' }}>
-              💵 Tender &amp; Change
+              {paymentMode === 'CREDIT' ? '🧾 CREDIT SALE' : '💵 TENDER &amp; CHANGE'}
             </span>
-            {numCashReceived > 0 && (
+            {paymentMode !== 'CREDIT' && numCashReceived > 0 && (
               <button
                 type="button"
                 className="btn btn-link p-0 text-decoration-none"
@@ -1684,7 +1810,23 @@ export function POSTerminal() {
             )}
           </div>
 
-          {/* Tendered Input */}
+          {paymentMode === 'CREDIT' ? (
+            <div
+              className="p-2 rounded text-center"
+              style={{
+                backgroundColor: 'rgba(217, 119, 6, 0.12)',
+                border: '1px solid rgba(217, 119, 6, 0.3)',
+                fontSize: '10.5px',
+                color: '#D97706',
+              }}
+            >
+              {selectedCustomer
+                ? `Full amount (${formatCurrency(grandTotal)}) will be added to this customer's khata.`
+                : 'Select a customer (F5) to post this credit sale.'}
+            </div>
+          ) : (
+            <>
+              {/* Tendered Input */}
           <div className="input-group input-group-sm">
             <span className="input-group-text px-2 font-monospace fw-bold" style={{ fontSize: '11px', backgroundColor: 'var(--surface-subtle)', borderColor: 'var(--input-border)', color: 'var(--text-secondary)' }}>
               Received
@@ -1791,15 +1933,18 @@ export function POSTerminal() {
               Enter customer tendered cash for change
             </div>
           )}
+            </>
+          )}
         </div>
 
-        {/* 4. Primary Checkout & Hold Actions Card */}
+        {/* 5. Primary Checkout & Hold Actions Card */}
         <div className="d-flex flex-column gap-2 mt-auto">
           <button
             type="button"
             id="primaryCheckoutBtn"
             className="btn w-100 text-white fw-bold shadow-sm d-flex align-items-center justify-content-center gap-2"
             onClick={handleInitiateCheckout}
+            disabled={isProcessingCheckout}
             style={{
               height: '44px',
               fontSize: '13.5px',
@@ -2022,7 +2167,7 @@ export function POSTerminal() {
           setIsBelowCostModalOpen(false);
           if (pendingCheckoutAfterWarning) {
             setPendingCheckoutAfterWarning(false);
-            setIsPaymentModalOpen(true);
+            void handleCompleteCheckout();
           }
           setPendingRevertIndex(null);
         }}
@@ -2050,32 +2195,7 @@ export function POSTerminal() {
         }}
       />
 
-      {/* 5. Payment Modal (F9) */}
-      <PaymentModal
-        isOpen={isPaymentModalOpen}
-        onClose={() => {
-          setIsPaymentModalOpen(false);
-          searchInputRef.current?.focus();
-        }}
-        cart={cart}
-        subtotal={subtotal}
-        discountAmount={totalDiscount}
-        discountPercent={Number(discountPercent) || 0}
-        taxAmount={taxAmount}
-        totalAmount={grandTotal}
-        initialPaidAmount={parseFloat(cashReceivedStr) || grandTotal}
-        initialCustomerId={selectedCustomerId}
-        initialDoctorName={doctorName}
-        onPaymentSuccess={(inv) => {
-          setIsPaymentModalOpen(false);
-          setLastCompletedInvoice(inv);
-          setCreatedInvoice(inv);
-          setIsReceiptModalOpen(true);
-          resetBill();
-        }}
-      />
-
-      {/* 6. Receipt Modal */}
+      {/* 5. Receipt Modal */}
       {(createdInvoice || lastCompletedInvoice) && (
         <ThermalReceiptModal
           isOpen={isReceiptModalOpen}

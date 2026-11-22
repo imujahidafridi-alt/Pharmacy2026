@@ -19,6 +19,10 @@ export function ThermalReceiptModal({
 }: ThermalReceiptModalProps) {
   const { settings, formatCurrency } = useApp();
 
+  // 'KHATA' is kept for invoices created before the Credit payment mode rename
+  const isCreditSale =
+    invoice?.payment_mode === 'CREDIT' || invoice?.payment_mode === 'KHATA';
+
   // Paper Size state (80mm vs 58mm) persisted in localStorage
   const [paperSize, setPaperSize] = useState<'80mm' | '58mm'>(() => {
     const saved = localStorage.getItem('pharmacy_receipt_papersize');
@@ -219,7 +223,7 @@ export function ThermalReceiptModal({
                 .join(' • ')}
             </div>
             <div style={{ fontSize: '9.5px', fontWeight: 700, letterSpacing: '0.8px', marginTop: '3px', textTransform: 'uppercase' }}>
-              {invoice.payment_mode === 'KHATA' ? 'CREDIT SALE INVOICE' : 'SALE INVOICE'}
+              {isCreditSale ? 'CREDIT SALE INVOICE' : 'SALE INVOICE'}
             </div>
           </div>
 
@@ -233,11 +237,6 @@ export function ThermalReceiptModal({
               <span><strong>Customer:</strong> {invoice.customer_name || 'Walk-in'}</span>
               <span><strong>Mode:</strong> {invoice.payment_mode || 'CASH'}</span>
             </div>
-            {invoice.doctor_name && (
-              <div style={{ fontSize: '9px', color: '#444444' }}>
-                <strong>Dr:</strong> {invoice.doctor_name}
-              </div>
-            )}
           </div>
 
           {/* 3. ITEMS TABLE WITH CLEAN BORDERS */}
@@ -509,7 +508,7 @@ export function ThermalReceiptModal({
             </div>
 
             {/* Payment Details */}
-            {invoice.payment_mode === 'KHATA' ? (
+            {isCreditSale ? (
               <div
                 style={{
                   textAlign: 'center',
@@ -518,7 +517,7 @@ export function ThermalReceiptModal({
                   padding: '2px 0',
                 }}
               >
-                KHATA (CREDIT) SALE — POSTED TO ACCOUNT
+                CREDIT SALE — POSTED TO CUSTOMER KHATA
               </div>
             ) : (
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '9.5px' }}>

@@ -70,19 +70,10 @@ async function run() {
       await page.keyboard.press('Enter');
       await new Promise(r => setTimeout(r, 500));
 
-      // Press F9 to open Payment modal
+      // F9 now completes the sale directly and opens the thermal receipt
       console.log('Triggering F9 Pay & Print...');
       await page.keyboard.press('F9');
-      await new Promise(r => setTimeout(r, 800));
-
-      // Inside payment modal, confirm payment with Enter / Confirm & Print Bill
-      console.log('Clicking Confirm & Print Bill...');
-      await page.evaluate(() => {
-        const buttons = Array.from(document.querySelectorAll('button'));
-        const checkoutBtn = buttons.find(b => b.textContent && b.textContent.includes('Confirm & Print Bill'));
-        if (checkoutBtn) checkoutBtn.click();
-      });
-      await new Promise(r => setTimeout(r, 1500));
+      await new Promise(r => setTimeout(r, 1800));
 
       // Thermal Receipt Modal should now be open!
       const freshReceiptPath = path.join(ARTIFACTS_DIR, 'receipt_checkout_complete.png');

@@ -141,7 +141,6 @@ export interface Invoice {
   date?: string;
   customer_id?: number | null;
   customer_name: string;
-  doctor_name?: string;
   subtotal: number;
   discount_amount: number;
   discount_percent?: number;
@@ -149,9 +148,8 @@ export interface Invoice {
   total_amount: number;
   paid_amount: number;
   change_amount: number;
-  payment_mode: 'CASH' | 'CARD' | 'KHATA' | 'ONLINE';
+  payment_mode: 'CASH' | 'ONLINE' | 'CREDIT' | 'KHATA';
   status?: string;
-  notes?: string;
   items: InvoiceItem[];
 }
 
