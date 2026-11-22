@@ -1393,3 +1393,117 @@ kbd,
   font-weight: 500 !important;
   opacity: 1 !important;
 }
+
+/* Scan feedback: a short mint pulse on the touched cart row */
+@keyframes rxRowFlash {
+  0% { background-color: var(--brand-accent) !important; }
+  100% { background-color: transparent !important; }
+}
+
+.pos-row-added td {
+  animation: rxRowFlash 0.75s ease-out !important;
+}
+
+/* Semantic payment modes — scannable at a glance */
+.payment-cash,
+.payment-online,
+.payment-credit {
+  background-color: var(--surface-bg) !important;
+  border: 1px solid var(--border-color) !important;
+  color: var(--text-secondary) !important;
+  border-radius: 9px !important;
+  box-shadow: var(--shadow-sm) !important;
+}
+
+.payment-cash i { color: #0B7A68 !important; }
+.payment-online i { color: #2563EB !important; }
+.payment-credit i { color: #D97706 !important; }
+
+.payment-cash-active {
+  background: linear-gradient(100deg, #0B7A68, #13A88D) !important;
+  border: none !important;
+  color: #FFFFFF !important;
+  border-radius: 9px !important;
+  box-shadow: 0 4px 12px rgba(11, 122, 104, 0.24) !important;
+}
+
+.payment-online-active {
+  background: linear-gradient(100deg, #2563EB, #3B82F6) !important;
+  border: none !important;
+  color: #FFFFFF !important;
+  border-radius: 9px !important;
+  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.24) !important;
+}
+
+.payment-credit-active {
+  background: linear-gradient(100deg, #D97706, #F59E0B) !important;
+  border: none !important;
+  color: #FFFFFF !important;
+  border-radius: 9px !important;
+  box-shadow: 0 4px 12px rgba(217, 119, 6, 0.24) !important;
+}
+
+/* Small toolbar controls in the status strip */
+.pos-tool-btn {
+  height: 22px !important;
+  padding: 0 7px !important;
+  font-size: 10.5px !important;
+  font-weight: 600 !important;
+  border-radius: 6px !important;
+  border: 1px solid var(--border-color) !important;
+  background-color: var(--surface-bg) !important;
+  color: var(--text-secondary) !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 4px !important;
+  box-shadow: var(--shadow-sm) !important;
+}
+
+.pos-tool-btn:hover {
+  border-color: var(--brand-teal) !important;
+  color: var(--brand-teal) !important;
+}
+
+/* Polished empty-cart state */
+.cart-empty-row td {
+  padding: 0 !important;
+  border: none !important;
+}
+
+.cart-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  min-height: 110px;
+  color: var(--text-muted);
+}
+
+.cart-empty-state i {
+  font-size: 24px;
+  color: var(--brand-teal);
+  opacity: 0.7;
+}
+
+.cart-empty-state span {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.cart-empty-state small {
+  font-size: 10.5px;
+}
+
+/* Compact cart density */
+.pos-table-compact tbody tr {
+  height: 30px !important;
+}
+
+.pos-table-compact tbody td,
+.pos-table-compact thead th {
+  padding-top: 2px !important;
+  padding-bottom: 2px !important;
+  font-size: 11px !important;
+}

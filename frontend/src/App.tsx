@@ -174,8 +174,16 @@ export function App() {
           })}
         </nav>
 
-        {/* Right: Counter Badge, Operator, Clock & Controls */}
+        {/* Right: Connection, Counter Badge, Operator, Clock & Controls */}
         <div className="d-flex align-items-center gap-2 flex-shrink-0">
+          {/* Backend connectivity at a glance */}
+          <span
+            title={serverOnline ? 'Backend online' : 'Backend offline — check pharmacy_server.exe'}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+          >
+            <span className={`pulse-dot ${serverOnline ? '' : 'offline'}`}></span>
+          </span>
+
           {/* Counter ID Badge */}
           <span
             id="navMetaBadge"

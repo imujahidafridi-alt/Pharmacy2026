@@ -11,6 +11,8 @@ import { useApp } from '../../context/AppContext';
 import { useToast } from '../../context/ToastContext';
 import { api } from '../../services/api';
 import { Batch, CartItem, Customer, Invoice, Medicine } from '../../types';
+import { playFeedback } from '../../utils/sound';
+import { ShortcutsHelpModal } from './ShortcutsHelpModal';
 
 export interface ParsedSearchCommand {
   query: string;
@@ -130,6 +132,11 @@ export function POSTerminal() {
   const [lastCompletedInvoice, setLastCompletedInvoice] = useState<Invoice | null>(null);
   const [isParkedModalOpen, setIsParkedModalOpen] = useState<boolean>(false);
   const [isReturnModalOpen, setIsReturnModalOpen] = useState<boolean>(false);
+  const [isHelpOpen, setIsHelpOpen] = useState<boolean>(false);
+  const [compactRows, setCompactRows] = useState<boolean>(
+    () => localStorage.getItem('pharmacy_cart_density') === 'compact'
+  );
+  const [flashIndex, setFlashIndex] = useState<number>(-1);
 
   // Qty and Price input refs for keyboard focus
   const qtyInputRefs = useRef<(HTMLInputElement | null)[]>([]);
@@ -252,6 +259,7 @@ export function POSTerminal() {
       );
 
       if (validBatches.length === 0) {
+        playFeedback('error');
         toast.error(`No valid non-expired stock available for ${medicine.name}!`);
         return;
       }
@@ -311,10 +319,20 @@ export function POSTerminal() {
         setSelectedRowIndex(0);
       }
 
+      const touchedIndex = existingIdx >= 0 ? existingIdx : 0;
+      setFlashIndex(touchedIndex);
+      window.setTimeout(() => {
+        setFlashIndex((current) => (current === touchedIndex ? -1 : current));
+      }, 750);
+      playFeedback('success');
+
       if (parsedCmd?.isReturn) {
         toast.info(`Added WAPSI return: ${medicine.name} (Qty: ${inputQty})`);
+      } else {
+        toast.success(`Added ${medicine.name}`, 1200);
       }
     } catch (err: any) {
+      playFeedback('error');
       toast.error('Failed to resolve medicine batch: ' + err.message);
     }
   };
@@ -459,6 +477,15 @@ export function POSTerminal() {
     }
   };
 
+  // Denomination chips add to the tendered amount (cashiers tap 500 twice)
+  const handleAddTender = (amount: number) => {
+    setCashReceivedStr((previous) => {
+      const next = (parseFloat(previous) || 0) + amount;
+      return String(Math.round(next * 100) / 100);
+    });
+    searchInputRef.current?.focus();
+  };
+
   // Open Mutabadil
   const handleOpenMutabadil = (formula?: string) => {
     let targetFormula = formula || '';
@@ -509,6 +536,54 @@ export function POSTerminal() {
     }
   };
 
+  // Payment mode changes stay honest when a khata customer is attached
+  const handlePaymentModeChange = (mode: 'CASH' | 'ONLINE' | 'CREDIT') => {
+    if (paymentMode === 'CREDIT' && mode !== 'CREDIT' && selectedCustomer) {
+      const proceed = window.confirm(
+        `${selectedCustomer.name} is still attached. This sale will be recorded as ${mode} and will NOT be posted to their Khata. Continue?`
+      );
+      if (!proceed) return;
+    }
+    setPaymentMode(mode);
+    if (mode === 'CREDIT' && !selectedCustomerId) setIsCustomerModalOpen(true);
+    searchInputRef.current?.focus();
+  };
+
+  // Correct the saved item price, not just the current cart line
+  const handleFixMasterPrice = async () => {
+    try {
+      for (const warning of belowCostWarningItems) {
+        const master = await api.getMedicine(warning.medicine_id);
+        await api.updateMedicine(warning.medicine_id, {
+          ...master,
+          sale_price: warning.applicable_cost,
+          current_stock: master.total_stock ?? 0,
+          total_stock: master.total_stock ?? 0,
+        });
+        setCart((prev) =>
+          prev.map((it) =>
+            it.medicine_id === warning.medicine_id
+              ? {
+                  ...it,
+                  unit_price: warning.applicable_cost,
+                  total: calculateLineTotal({ ...it, unit_price: warning.applicable_cost }),
+                }
+              : it
+          )
+        );
+      }
+      playFeedback('success');
+      toast.success('Item sale prices updated in the master catalog.');
+      setIsBelowCostModalOpen(false);
+      setBelowCostWarningItems([]);
+      setPendingCheckoutAfterWarning(false);
+      setPendingRevertIndex(null);
+    } catch (err: any) {
+      playFeedback('error');
+      toast.error(err.message || 'Failed to update item master prices');
+    }
+  };
+
   // Finalize the sale directly from the right-side payment panel
   const handleCompleteCheckout = async () => {
     if (cart.length === 0 || isProcessingCheckout) return;
@@ -548,6 +623,27 @@ export function POSTerminal() {
         ? Math.round((numCashReceived - grandTotal) * 100) / 100
         : 0;
 
+    // Never create a silent partial cash sale: require an explicit khata choice.
+    let effectivePaymentMode = paymentMode;
+    if (effectivePaymentMode !== 'CREDIT' && paidAmount < grandTotal - 0.001) {
+      const postToKhata = window.confirm(
+        `Received ${formatCurrency(paidAmount)} is short of ${formatCurrency(
+          grandTotal
+        )}. Click OK to post the balance to a customer Khata, or Cancel to add more cash.`
+      );
+      if (!postToKhata) {
+        toast.warning('Add more cash or choose Credit as the payment mode.');
+        return;
+      }
+      if (!selectedCustomerId) {
+        toast.error('Select a customer account for the Khata balance.');
+        setIsCustomerModalOpen(true);
+        return;
+      }
+      effectivePaymentMode = 'CREDIT';
+      setPaymentMode('CREDIT');
+    }
+
     setIsProcessingCheckout(true);
     try {
       const effectiveSubtotal = subtotal + totalMrpSavings;
@@ -561,7 +657,7 @@ export function POSTerminal() {
         total_amount: grandTotal,
         paid_amount: paidAmount,
         change_amount: changeAmount,
-        payment_mode: paymentMode,
+        payment_mode: effectivePaymentMode,
         items: cart.map((item) => ({
           medicine_id: item.medicine_id,
           batch_id: item.batch_id || 0,
@@ -578,6 +674,7 @@ export function POSTerminal() {
       };
 
       const result = await api.checkoutPOS(invoicePayload);
+      playFeedback('success');
       toast.success(`Invoice ${result.invoice_number} created successfully!`);
       refreshStats();
       setLastCompletedInvoice(result);
@@ -586,6 +683,7 @@ export function POSTerminal() {
       resetBill();
       searchInputRef.current?.focus();
     } catch (err: any) {
+      playFeedback('error');
       toast.error(err.message || 'Checkout failed');
     } finally {
       setIsProcessingCheckout(false);
@@ -812,6 +910,13 @@ export function POSTerminal() {
         } else {
           toast.info('No recent bill found to reprint.');
         }
+      } else if (
+        e.key === '?' &&
+        document.activeElement?.tagName !== 'INPUT' &&
+        document.activeElement?.tagName !== 'TEXTAREA'
+      ) {
+        e.preventDefault();
+        setIsHelpOpen(true);
       }
     };
 
@@ -858,6 +963,21 @@ export function POSTerminal() {
   const remainingDue = grandTotal > numCashReceived && numCashReceived > 0 ? grandTotal - numCashReceived : 0;
   const selectedCartItem = selectedRowIndex >= 0 && cart[selectedRowIndex] ? cart[selectedRowIndex] : null;
   const isCreditContext = paymentMode === 'CREDIT' || !!selectedCustomer;
+
+  const tenderBreakdown = (() => {
+    let remaining = Math.round(numCashReceived);
+    if (remaining <= 0) return '';
+    const parts: string[] = [];
+    for (const note of [5000, 1000, 500, 100, 50, 20, 10]) {
+      const count = Math.floor(remaining / note);
+      if (count > 0) {
+        parts.push(`${count}×${note}`);
+        remaining -= count * note;
+      }
+    }
+    if (remaining > 0) parts.push(`Rs.${remaining}`);
+    return parts.slice(0, 4).join(' + ');
+  })();
 
   return (
     <div
@@ -1177,7 +1297,7 @@ export function POSTerminal() {
                B. CART ITEMS TABLE (Integrated 2-Line Item/Formula Grid)
                ========================================================================= */
             <table
-              className="table table-sm mb-0 align-middle w-100"
+              className={`table table-sm mb-0 align-middle w-100 ${compactRows ? 'pos-table-compact' : ''}`}
               style={{ fontSize: '12px', borderCollapse: 'collapse' }}
             >
               <thead
@@ -1213,7 +1333,7 @@ export function POSTerminal() {
                       ref={(el) => {
                         cartRowRefs.current[idx] = el;
                       }}
-                      className={isSelected ? 'pos-row-active' : ''}
+                      className={`${isSelected ? 'pos-row-active' : ''} ${flashIndex === idx ? 'pos-row-added' : ''}`}
                       onClick={() => setSelectedRowIndex(idx)}
                       style={{
                         cursor: 'pointer',
@@ -1233,6 +1353,13 @@ export function POSTerminal() {
                             <span style={{ fontWeight: 700, fontSize: '12px', color: isSelected ? 'var(--brand-teal)' : 'var(--text-primary)' }}>
                               {item.name}
                             </span>
+                            {(item.pack_size || 1) > 1 && (
+                              <i
+                                className="bi bi-info-circle"
+                                title={`${item.pack_size} base units = 1 pack · TP ${formatCurrency(item.cost_price || 0)}/pack (${formatCurrency((item.cost_price || 0) / item.pack_size)}/unit)`}
+                                style={{ fontSize: '10px', color: 'var(--text-muted)', cursor: 'help' }}
+                              ></i>
+                            )}
                             {isWapsi && (
                               <span
                                 className="badge text-bg-danger ms-1"
@@ -1496,6 +1623,18 @@ export function POSTerminal() {
                   );
                 })}
 
+                {cart.length === 0 && (
+                  <tr className="cart-empty-row">
+                    <td colSpan={10}>
+                      <div className="cart-empty-state">
+                        <i className="bi bi-cart-plus"></i>
+                        <span>Scan a barcode or type an item name to start a bill</span>
+                        <small>Press <kbd>F1</kbd> to focus the search box</small>
+                      </div>
+                    </td>
+                  </tr>
+                )}
+
                 {/* Ruled Gridlines (Ghost Rows) to eliminate empty void */}
                 {Array.from({ length: Math.max(0, 14 - cart.length) }).map((_, ghostIdx) => {
                   const isEven = (cart.length + ghostIdx) % 2 === 0;
@@ -1509,13 +1648,7 @@ export function POSTerminal() {
                       }}
                     >
                       <td style={{ textAlign: 'center', padding: '4px' }}></td>
-                      <td style={{ padding: '4px 8px' }}>
-                        {cart.length === 0 && ghostIdx === 0 && (
-                          <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontStyle: 'italic' }}>
-                            🛒 Ready to scan items (type in search box or scan barcode)...
-                          </span>
-                        )}
-                      </td>
+                      <td style={{ padding: '4px 8px' }}></td>
                       <td></td>
                       <td></td>
                       <td></td>
@@ -1575,6 +1708,28 @@ export function POSTerminal() {
           <div className="d-flex align-items-center gap-2 flex-shrink-0">
             <span style={{ color: 'var(--text-muted)' }}>Items in cart:</span>
             <strong style={{ color: 'var(--text-primary)' }}>{cart.length}</strong>
+            <button
+              type="button"
+              className="btn btn-sm pos-tool-btn"
+              onClick={() => {
+                const next = !compactRows;
+                setCompactRows(next);
+                localStorage.setItem('pharmacy_cart_density', next ? 'compact' : 'comfortable');
+              }}
+              title={compactRows ? 'Switch to comfortable cart rows' : 'Switch to compact cart rows'}
+            >
+              <i className={`bi ${compactRows ? 'bi-list' : 'bi-list-task'}`}></i>
+              <span>{compactRows ? 'Comfort' : 'Compact'}</span>
+            </button>
+            <button
+              type="button"
+              className="btn btn-sm pos-tool-btn"
+              onClick={() => setIsHelpOpen(true)}
+              title="Keyboard shortcuts (?)"
+            >
+              <i className="bi bi-question-circle"></i>
+              <span>Shortcuts</span>
+            </button>
           </div>
         </div>
       </div>
@@ -1749,15 +1904,19 @@ export function POSTerminal() {
                 key={mode.id}
                 type="button"
                 className={`btn flex-grow-1 py-1 small fw-semibold d-flex align-items-center justify-content-center gap-1 ${
-                  paymentMode === mode.id ? 'btn-primary' : 'btn-outline-secondary'
+                  paymentMode === mode.id
+                    ? mode.id === 'CASH'
+                      ? 'payment-cash-active'
+                      : mode.id === 'ONLINE'
+                      ? 'payment-online-active'
+                      : 'payment-credit-active'
+                    : mode.id === 'CASH'
+                    ? 'payment-cash'
+                    : mode.id === 'ONLINE'
+                    ? 'payment-online'
+                    : 'payment-credit'
                 }`}
-                onClick={() => {
-                  setPaymentMode(mode.id);
-                  if (mode.id === 'CREDIT' && !selectedCustomerId) {
-                    setIsCustomerModalOpen(true);
-                  }
-                  searchInputRef.current?.focus();
-                }}
+                onClick={() => handlePaymentModeChange(mode.id)}
                 style={{ fontSize: '11px' }}
               >
                 <i className={`bi ${mode.icon}`}></i>
@@ -1853,28 +2012,40 @@ export function POSTerminal() {
             <button
               type="button"
               className="btn btn-sm secondaryBtn py-0 px-2 flex-grow-1"
-              onClick={() => setCashReceivedStr('500')}
+              onClick={() => handleAddTender(500)}
               style={{ fontSize: '10.5px', height: '22px' }}
+              title="Add Rs. 500 to the tendered amount"
             >
               500
             </button>
             <button
               type="button"
               className="btn btn-sm secondaryBtn py-0 px-2 flex-grow-1"
-              onClick={() => setCashReceivedStr('1000')}
+              onClick={() => handleAddTender(1000)}
               style={{ fontSize: '10.5px', height: '22px' }}
+              title="Add Rs. 1,000 to the tendered amount"
             >
               1,000
             </button>
             <button
               type="button"
               className="btn btn-sm secondaryBtn py-0 px-2 flex-grow-1"
-              onClick={() => setCashReceivedStr('5000')}
+              onClick={() => handleAddTender(5000)}
               style={{ fontSize: '10.5px', height: '22px' }}
+              title="Add Rs. 5,000 to the tendered amount"
             >
               5,000
             </button>
           </div>
+
+          {tenderBreakdown && (
+            <div
+              className="text-center font-monospace"
+              style={{ fontSize: '10px', color: 'var(--text-muted)', letterSpacing: '0.01em' }}
+            >
+              💵 {tenderBreakdown}
+            </div>
+          )}
 
           {/* Return Change Display Tile */}
           {numCashReceived > 0 ? (
@@ -2181,6 +2352,16 @@ export function POSTerminal() {
           setIsBelowCostModalOpen(false);
           setPendingRevertIndex(null);
           setPendingCheckoutAfterWarning(false);
+        }}
+        onFixMasterPrice={handleFixMasterPrice}
+      />
+
+      {/* 4.5 Keyboard Shortcuts Guide */}
+      <ShortcutsHelpModal
+        isOpen={isHelpOpen}
+        onClose={() => {
+          setIsHelpOpen(false);
+          searchInputRef.current?.focus();
         }}
       />
 

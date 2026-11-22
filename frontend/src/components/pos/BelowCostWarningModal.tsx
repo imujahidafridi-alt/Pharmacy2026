@@ -41,6 +41,7 @@ export interface BelowCostWarningModalProps {
   items: BelowCostItemWarning[];
   onConfirmSellAnyway: () => void;
   onRevertToCost?: () => void;
+  onFixMasterPrice?: () => void;
 }
 
 export function BelowCostWarningModal({
@@ -49,6 +50,7 @@ export function BelowCostWarningModal({
   items,
   onConfirmSellAnyway,
   onRevertToCost,
+  onFixMasterPrice,
 }: BelowCostWarningModalProps) {
   const { formatCurrency } = useApp();
 
@@ -118,6 +120,19 @@ export function BelowCostWarningModal({
           </button>
 
           <div className="d-flex align-items-center gap-2">
+            {onFixMasterPrice && (
+              <button
+                type="button"
+                className="btn btn-outline-info d-flex align-items-center gap-1"
+                style={{ height: '38px', fontSize: '12px', fontWeight: 600, padding: '0 10px' }}
+                onClick={onFixMasterPrice}
+                title="Update the item's saved sale price, not just this cart line"
+              >
+                <i className="bi bi-pencil-square"></i>
+                <span>Fix Master Price</span>
+              </button>
+            )}
+
             {/* Subtle Red Outline: Sell Anyway [F12] */}
             <button
               type="button"

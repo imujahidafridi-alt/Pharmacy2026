@@ -30,6 +30,8 @@ export function BatchSelectorModal({ isOpen, onClose, medicine, onSelectBatch }:
 
   if (!medicine) return null;
 
+  const packSize = medicine.pack_size || 1;
+
   return (
     <Modal
       isOpen={isOpen}
@@ -42,8 +44,13 @@ export function BatchSelectorModal({ isOpen, onClose, medicine, onSelectBatch }:
         </Button>
       }
     >
-      <div className="small text-secondary mb-3">
-        System automatically defaults to <strong>FEFO (First Expire First Out)</strong>. You can manually override and select a specific batch below:
+      <div className="small text-secondary mb-3 d-flex justify-content-between align-items-center gap-2 flex-wrap">
+        <span>
+          System defaults to <strong>FEFO (First Expire First Out)</strong>. Override with a specific batch below.
+        </span>
+        <span className="badge bg-primary-subtle text-primary fw-semibold">
+          1 pack = {packSize} base units
+        </span>
       </div>
 
       {loading ? (
@@ -56,8 +63,10 @@ export function BatchSelectorModal({ isOpen, onClose, medicine, onSelectBatch }:
                 <th>Batch #</th>
                 <th>Expiry Date</th>
                 <th>Status</th>
-                <th>Available Qty</th>
-                <th>Sale Rate</th>
+                <th className="text-end">Stock (base)</th>
+                <th className="text-end">Sale / unit</th>
+                <th className="text-end">Sale / pack</th>
+                <th className="text-end">Buy / pack</th>
                 <th className="text-end">Action</th>
               </tr>
             </thead>
@@ -86,8 +95,14 @@ export function BatchSelectorModal({ isOpen, onClose, medicine, onSelectBatch }:
                           : 'Healthy'}
                       </Badge>
                     </td>
-                    <td className="fw-bold">{b.quantity}</td>
-                    <td>{formatCurrency(b.sale_rate)}</td>
+                    <td className="text-end fw-bold" title={`${b.quantity} loose units available`}>
+                      {b.quantity}
+                    </td>
+                    <td className="text-end fw-semibold" style={{ color: 'var(--brand-teal)' }}>
+                      {formatCurrency(b.sale_rate)}
+                    </td>
+                    <td className="text-end text-muted">{formatCurrency(b.sale_rate * packSize)}</td>
+                    <td className="text-end text-muted">{formatCurrency(b.purchase_rate)}</td>
                     <td className="text-end">
                       <Button
                         variant={canSelect ? 'primary' : 'secondary'}
