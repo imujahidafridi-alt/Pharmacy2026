@@ -1798,7 +1798,7 @@ export function POSTerminal() {
         >
           <div className="d-flex align-items-center justify-content-between">
             <span className="fw-bold text-uppercase" style={{ fontSize: '10.5px', letterSpacing: '0.4px', color: 'var(--text-muted)' }}>
-              {paymentMode === 'CREDIT' ? '🧾 CREDIT SALE' : '💵 TENDER &amp; CHANGE'}
+              {paymentMode === 'CREDIT' ? '🧾 CREDIT SALE' : '💵 TENDER & CHANGE'}
             </span>
             {paymentMode !== 'CREDIT' && numCashReceived > 0 && (
               <button

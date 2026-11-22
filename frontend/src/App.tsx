@@ -141,7 +141,7 @@ export function App() {
         overflow: 'hidden',
         backgroundColor: 'var(--app-bg)',
         color: 'var(--text-primary)',
-        fontFamily: "'Roboto', sans-serif",
+        fontFamily: "'Inter', 'Roboto', sans-serif",
       }}
     >
       {/* Top Navigation Bar (#navBar) matching Qt reference */}

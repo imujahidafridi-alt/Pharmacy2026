@@ -920,3 +920,423 @@ input[type="number"] {
 .desktop-form-control {
   flex: 1;
 }
+
+/* ==========================================================================
+   RX PULSE — Modern Pharmacy Design System
+   A distinct clinical aesthetic: deep emerald, fresh mint, soft "clean room"
+   surfaces, generous radii and a subtle pharmacy identity mark in the nav.
+   Loaded last so it can safely refine the legacy blueprint styles above.
+   ========================================================================== */
+
+:root {
+  --font-sans: 'Inter', 'Roboto', -apple-system, BlinkMacSystemFont, Arial, sans-serif;
+  --font-mono: 'IBM Plex Mono', 'Roboto Mono', Consolas, monospace;
+  --bs-body-font-family: var(--font-sans);
+  --bs-font-sans-serif: var(--font-sans);
+  --bs-font-monospace: var(--font-mono);
+
+  --app-bg: #F2F7F5;
+  --surface-bg: #FFFFFF;
+  --surface-subtle: #EAF3F0;
+  --border-color: #D6E6E0;
+  --border-subtle: #E9F2EE;
+  --text-primary: #12332E;
+  --text-secondary: #4F706A;
+  --text-muted: #8EAAA4;
+
+  --brand-teal: #0B7A68;
+  --brand-teal-hover: #095F52;
+  --brand-teal-light: #DCF4ED;
+  --brand-accent: #12B597;
+  --brand-ink: #053C35;
+  --nav-bg: linear-gradient(105deg, #053C35 0%, #0B7A68 52%, #13A88D 100%);
+
+  --active-row-bg: #D8F3E9;
+  --active-row-text: #075E50;
+  --ghost-row-even: #FFFFFF;
+  --ghost-row-odd: #F8FCFA;
+  --ghost-row-border: #EDF4F1;
+
+  --card-bg: #FFFFFF;
+  --input-bg: #FBFFFD;
+  --input-border: #CCE0D9;
+  --input-text: #12332E;
+  --input-focus-border: #0B7A68;
+
+  --btn-secondary-bg: #FFFFFF;
+  --btn-secondary-text: #31554E;
+  --btn-secondary-border: #D6E6E0;
+  --btn-secondary-hover-bg: #EAF3F0;
+  --btn-secondary-hover-border: #0B7A68;
+
+  --badge-bg: #E7F3EE;
+  --badge-text: #3A665D;
+  --badge-border: #CFE3DB;
+
+  --shadow-sm: 0 2px 10px rgba(11, 90, 78, 0.06);
+  --shadow-md: 0 12px 30px rgba(11, 90, 78, 0.12);
+  --scrollbar-track: #F2F7F5;
+  --scrollbar-thumb: #BED9D1;
+  --scrollbar-thumb-hover: #8EC3B6;
+}
+
+[data-bs-theme="dark"], [data-theme="dark"] {
+  --app-bg: #061A18;
+  --surface-bg: #0F2B27;
+  --surface-subtle: #143A34;
+  --border-color: #205048;
+  --border-subtle: #174039;
+  --text-primary: #E8F6F1;
+  --text-secondary: #A0C2BB;
+  --text-muted: #6F9890;
+
+  --brand-teal: #2DD4BF;
+  --brand-teal-hover: #5EEAD4;
+  --brand-teal-light: #10453D;
+  --brand-accent: #2DD4BF;
+  --brand-ink: #D8FFF7;
+  --nav-bg: linear-gradient(105deg, #03100E 0%, #0A302A 55%, #0E4B40 100%);
+
+  --active-row-bg: #125046;
+  --active-row-text: #8DF0D9;
+  --ghost-row-even: #0F2B27;
+  --ghost-row-odd: #0B2421;
+  --ghost-row-border: #173B35;
+
+  --card-bg: #0F2B27;
+  --input-bg: #0A2421;
+  --input-border: #205048;
+  --input-text: #E8F6F1;
+  --input-focus-border: #2DD4BF;
+
+  --btn-secondary-bg: #0F2B27;
+  --btn-secondary-text: #D4ECE5;
+  --btn-secondary-border: #205048;
+  --btn-secondary-hover-bg: #174039;
+  --btn-secondary-hover-border: #2DD4BF;
+
+  --badge-bg: #174039;
+  --badge-text: #BFE3D9;
+  --badge-border: #205048;
+
+  --shadow-sm: 0 2px 10px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 16px 40px rgba(0, 0, 0, 0.45);
+  --scrollbar-track: #061A18;
+  --scrollbar-thumb: #205048;
+  --scrollbar-thumb-hover: #2DD4BF;
+}
+
+/* Typography — modern geometric sans + monospaced numbers */
+html, body, button, input, optgroup, select, textarea {
+  font-family: var(--font-sans) !important;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+.font-monospace, code, kbd, samp, pre,
+input[inputmode="numeric"], input[inputmode="decimal"] {
+  font-family: var(--font-mono) !important;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Subtle ambient pharmacy backdrop */
+body {
+  background-color: var(--app-bg) !important;
+  background-image:
+    radial-gradient(circle at 88% -8%, rgba(18, 181, 151, 0.11), transparent 38%),
+    radial-gradient(circle at -6% 105%, rgba(11, 122, 104, 0.09), transparent 35%);
+  background-attachment: fixed;
+}
+
+/* Signature Rx mark in the top navigation */
+#navBar::before {
+  content: '℞';
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 23px;
+  height: 23px;
+  min-width: 23px;
+  margin-right: 2px;
+  border-radius: 7px;
+  background: linear-gradient(135deg, #6EE7D2, #12B597);
+  color: #053C35;
+  font-family: Georgia, 'Times New Roman', serif;
+  font-size: 15px;
+  font-weight: 900;
+  line-height: 1;
+  box-shadow: 0 2px 10px rgba(18, 181, 151, 0.45);
+  user-select: none;
+}
+
+/* Top navigation — emerald gradient command bar */
+#navBar {
+  background: var(--nav-bg) !important;
+  border-bottom: none !important;
+  box-shadow: 0 6px 22px rgba(5, 60, 53, 0.28) !important;
+  padding: 0 10px;
+}
+
+.navBtn {
+  color: rgba(255, 255, 255, 0.76) !important;
+  border: none !important;
+  border-radius: 8px !important;
+  height: 27px !important;
+  padding: 0 9px !important;
+  font-size: 11.5px !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.01em;
+  white-space: nowrap !important;
+  flex: 0 0 auto !important;
+  transition: all 0.16s ease !important;
+}
+
+.navBtn:hover {
+  background: rgba(255, 255, 255, 0.13) !important;
+  color: #FFFFFF !important;
+}
+
+.navBtn.checked {
+  background: #FFFFFF !important;
+  color: #075E50 !important;
+  border-bottom: none !important;
+  box-shadow: 0 3px 12px rgba(0, 0, 0, 0.2) !important;
+  font-weight: 800 !important;
+}
+
+#navMetaBadge {
+  background: rgba(255, 255, 255, 0.14) !important;
+  color: #E9FFFA !important;
+  border: 1px solid rgba(255, 255, 255, 0.26) !important;
+  border-radius: 20px !important;
+  padding: 2px 10px !important;
+  font-size: 10.5px !important;
+  letter-spacing: 0.03em;
+}
+
+/* Surfaces — soft clinical cards */
+.card,
+.border.rounded,
+.modal-content {
+  border-radius: 14px !important;
+  border-color: var(--border-color) !important;
+  box-shadow: var(--shadow-sm) !important;
+}
+
+.modal-content {
+  box-shadow: var(--shadow-md) !important;
+  overflow: hidden;
+}
+
+.modal-header {
+  background: linear-gradient(180deg, var(--surface-subtle), var(--surface-bg)) !important;
+  border-bottom: 1px solid var(--border-color) !important;
+}
+
+.modal-footer {
+  background: var(--surface-subtle) !important;
+  border-top: 1px solid var(--border-color) !important;
+}
+
+/* Hero payable card — the focal point of the counter */
+#totalDisplayCard {
+  background: linear-gradient(155deg, var(--surface-bg) 40%, var(--brand-teal-light) 140%) !important;
+  border: 1px solid var(--border-color) !important;
+  border-top: 3px solid var(--brand-accent) !important;
+  border-radius: 14px !important;
+  box-shadow: var(--shadow-sm) !important;
+}
+
+#totalDisplayAmount {
+  color: var(--brand-teal) !important;
+  font-size: 32px !important;
+  font-weight: 800 !important;
+  letter-spacing: -1px !important;
+}
+
+/* Inputs & controls */
+.form-control,
+.form-select {
+  border-radius: 9px !important;
+  border-color: var(--input-border) !important;
+  background-color: var(--input-bg) !important;
+  color: var(--input-text) !important;
+  box-shadow: none !important;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease !important;
+}
+
+.form-control:focus,
+.form-select:focus {
+  border-color: var(--input-focus-border) !important;
+  box-shadow: 0 0 0 3px rgba(18, 181, 151, 0.16) !important;
+}
+
+.input-group-text {
+  background-color: var(--surface-subtle) !important;
+  border-color: var(--input-border) !important;
+  color: var(--text-secondary) !important;
+}
+
+/* Primary call to action */
+#primaryCheckoutBtn {
+  background: linear-gradient(100deg, #0B7A68, #13A88D) !important;
+  border: none !important;
+  border-radius: 12px !important;
+  height: 48px !important;
+  font-size: 14px !important;
+  font-weight: 800 !important;
+  letter-spacing: 0.04em;
+  box-shadow: 0 8px 22px rgba(11, 122, 104, 0.3) !important;
+  transition: transform 0.15s ease, box-shadow 0.15s ease !important;
+}
+
+#primaryCheckoutBtn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 12px 28px rgba(11, 122, 104, 0.4) !important;
+}
+
+.btn-primary {
+  background: linear-gradient(100deg, #0B7A68, #13A88D) !important;
+  border: none !important;
+  border-radius: 9px !important;
+  box-shadow: 0 4px 12px rgba(11, 122, 104, 0.2) !important;
+}
+
+.btn-outline-secondary,
+.secondaryBtn {
+  border-radius: 9px !important;
+  background-color: var(--btn-secondary-bg) !important;
+  border-color: var(--btn-secondary-border) !important;
+  color: var(--btn-secondary-text) !important;
+  box-shadow: var(--shadow-sm) !important;
+}
+
+.btn-outline-secondary:hover,
+.secondaryBtn:hover {
+  background-color: var(--btn-secondary-hover-bg) !important;
+  border-color: var(--btn-secondary-hover-border) !important;
+  color: var(--brand-teal) !important;
+}
+
+.dangerBtn {
+  border-radius: 9px !important;
+  box-shadow: var(--shadow-sm) !important;
+}
+
+/* Tables — airy, clinical data grid */
+.table thead th {
+  background-color: var(--surface-subtle) !important;
+  color: var(--text-secondary) !important;
+  font-size: 10.5px !important;
+  font-weight: 800 !important;
+  letter-spacing: 0.09em !important;
+  border-bottom: 1px solid var(--border-color) !important;
+  white-space: nowrap;
+}
+
+.table tbody td {
+  border-bottom-color: var(--ghost-row-border) !important;
+}
+
+.table tbody tr:hover {
+  background-color: var(--brand-teal-light) !important;
+}
+
+.pos-row-active,
+.pos-row-active td {
+  background-color: var(--active-row-bg) !important;
+  color: var(--active-row-text) !important;
+  box-shadow: inset 3px 0 0 var(--brand-accent) !important;
+}
+
+/* Hotkey chips */
+.kbd,
+.pos-footer-btn kbd {
+  background-color: var(--brand-teal-light) !important;
+  color: var(--brand-teal) !important;
+  border: 1px solid transparent !important;
+  border-radius: 6px !important;
+  box-shadow: none !important;
+  font-family: var(--font-mono) !important;
+  font-size: 10px !important;
+  font-weight: 700 !important;
+}
+
+.pos-footer-btn {
+  border-radius: 10px !important;
+  box-shadow: var(--shadow-sm) !important;
+  background-color: var(--surface-bg) !important;
+  border-color: var(--border-color) !important;
+}
+
+.pos-footer-btn:hover {
+  border-color: var(--brand-teal) !important;
+  color: var(--brand-teal) !important;
+}
+
+/* Badges & pills */
+.badge {
+  border-radius: 20px !important;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+/* Scrollbars in brand colors */
+::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb) !important;
+  border-radius: 10px !important;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-thumb-hover) !important;
+}
+
+/* Dark mode refinements */
+[data-bs-theme="dark"] #navBar,
+[data-theme="dark"] #navBar {
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.5) !important;
+}
+
+[data-bs-theme="dark"] .navBtn.checked,
+[data-theme="dark"] .navBtn.checked {
+  background: #E8FFF9 !important;
+  color: #06453D !important;
+}
+
+[data-bs-theme="dark"] #primaryCheckoutBtn,
+[data-theme="dark"] #primaryCheckoutBtn {
+  background: linear-gradient(100deg, #14B89A, #2DD4BF) !important;
+  color: #042B26 !important;
+  border: none !important;
+  box-shadow: 0 8px 24px rgba(45, 212, 191, 0.28) !important;
+}
+
+[data-bs-theme="dark"] .btn-primary,
+[data-theme="dark"] .btn-primary {
+  background: linear-gradient(100deg, #14B89A, #2DD4BF) !important;
+  color: #042B26 !important;
+  border: none !important;
+}
+
+[data-bs-theme="dark"] #totalDisplayCard,
+[data-theme="dark"] #totalDisplayCard {
+  background: linear-gradient(155deg, var(--surface-bg) 40%, #0F3F37 140%) !important;
+}
+
+[data-bs-theme="dark"] .table tbody tr:hover,
+[data-theme="dark"] .table tbody tr:hover {
+  background-color: rgba(45, 212, 191, 0.08) !important;
+}
+
+/* Nav meta text must stay legible on the emerald gradient */
+#navBar .text-secondary,
+#navBar .text-muted {
+  color: rgba(255, 255, 255, 0.78) !important;
+}
+
+/* Count pills follow the pharmacy palette instead of Bootstrap blue */
+.badge.bg-primary-subtle {
+  background-color: var(--brand-teal-light) !important;
+  color: var(--brand-teal) !important;
+  border: 1px solid var(--border-color) !important;
+}
