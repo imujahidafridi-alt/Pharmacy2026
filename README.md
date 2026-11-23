@@ -1,4 +1,4 @@
-# Al-Shifa Pharmacy POS, Inventory, Expiry & Khata ERP System
+# A1 Pharmacy — POS, Inventory, Expiry & Khata ERP System
 
 A production-ready, ultra-fast Pharmacy Management Application combining a high-performance **C++20 backend** with embedded **SQLite3 (WAL mode)** and a modern **React + TypeScript frontend** styled with the latest **Bootstrap 5.3+ framework** and native dark/light color modes.
 
@@ -26,7 +26,7 @@ A production-ready, ultra-fast Pharmacy Management Application combining a high-
   - Pack size is the only conversion factor: `cost per unit = TP ÷ pack size`, `pack price = unit sale rate × pack size`.
   - Batch-level purchase/sale rates belong to GRN and are never overwritten when a medicine master is edited.
 - **Safety Lock Guardrail**: Expired medicines are strictly barred from being billed.
-- **Bill Parking / Holding**: Suspend an active customer cart (`F4`), serve the next customer, and resume (`Parked Bills`) at any time without data loss.
+- **Bill Parking / Holding**: Suspend an active customer cart (`F7`), serve the next customer, and resume (`Parked Bills`, `F8`) at any time without data loss.
 - **Sales Return & Restocking**: Full return against invoice number, restocking batches, and refund daybook accounting.
 - **Inline Payment Modes**: Cash, Online and Credit (Khata) are selected directly from the POS right-side panel — no separate payment dialog.
 - **Thermal Receipt Printing**: Printable 80mm ESC/POS thermal receipt with pharmacy branding, drug license number, and Khata balance summary.
@@ -50,8 +50,14 @@ A production-ready, ultra-fast Pharmacy Management Application combining a high-
 - 🟩 **Healthy (> 90 days)**: Safe status.
 
 ### 5. Cash Drawer & Daybook Reconciliation
-- Real-time tally of physical drawer cash.
-- Opening float, cash sales, khata collections, and store petty expenses.
+- Open a shift with a starting float; track expected cash live as sales, collections, refunds and expenses occur.
+- Only **physical cash** touches the drawer — Online/Card sales and khata refunds are excluded.
+- Denomination-based closing count with automatic variance and closed-shift history.
+
+### 6. Interface & Navigation
+- Compact grouped menu bar: **Sale / Inventory / Accounts / System**, with icon-rich dropdowns.
+- Responsive: collapses to a single **Menu** button on narrow windows.
+- Keyboard-first workflows, contextual shortcut guide (`?`), scan feedback, light/dark "Rx Pulse" theme.
 
 ---
 
@@ -60,12 +66,25 @@ A production-ready, ultra-fast Pharmacy Management Application combining a high-
 | Hotkey | Action |
 |---|---|
 | `F1` | Focus & select Medicine / Barcode Search Bar |
-| `F2` | Open Customer Khata Accounts View |
-| `F3` | Open Expiry Watchlist |
-| `F4` | Park / Suspend Current Bill |
-| `F9` | Open Complete Sale & Payment Modal |
-| `Esc` | Close any active modal dialog |
 | `Enter` | Add highlighted search result to bill |
+| `F2` | Edit quantity of the selected cart row |
+| `+` / `-` | Increase / decrease selected quantity |
+| `↑` / `↓` | Move between cart rows |
+| `Del` | Remove selected cart row |
+| `F4` | Bill discount |
+| `F5` | Select customer / khata account |
+| `F7` | Hold / park current bill |
+| `F8` | Open parked bills |
+| `F9` | Complete sale and print receipt |
+| `Alt+M` | Mutabadil — generic alternatives |
+| `Alt+R` | Round bill to nearest Rs. 5 |
+| `Alt+W` | Open sales return (Wapsi) |
+| `Ctrl+P` | Reprint last invoice |
+| `F12` | Sell anyway in the below-cost alert |
+| `?` | Show the keyboard shortcut guide |
+| `Esc` | Close the active dialog |
+
+Search shortcuts: `5*Item` adds 5 units, `-Item` adds a Wapsi line, `Alt+M` opens substitutes, and any 4+ digit input is treated as a barcode.
 
 ---
 
@@ -76,15 +95,16 @@ Simply double-click:
 ```bat
 run_desktop.bat
 ```
-This launches the C++ backend and opens the Pharmacy POS app window.
+This launches the C++ backend and opens the **A1 Pharmacy** app in a dedicated Edge/Chrome app window with its own taskbar identity.
 
 ### Option 2: Live Development Mode
-Run the development batch script:
+Run either development batch script:
 ```bat
-run_dev.bat
+dev.bat
 ```
+opens the Vite build in a standalone taskbar app window, while `run_dev.bat` just starts the servers for browser-based development.
 - Backend REST API: `http://127.0.0.1:8085`
-- Frontend Vite Server: `http://localhost:5173` (with hot reloading)
+- Frontend Vite Server: `http://127.0.0.1:5173` (with hot reloading)
 
 ### Option 3: Full Rebuild
 To recompile both C++ backend and React frontend:
@@ -114,23 +134,24 @@ Pharmacy_2026/
 │   ├── src/
 │   │   ├── components/
 │   │   │   ├── ui/            # UI components (Button.tsx, Modal.tsx, Input.tsx, Badge.tsx, Table.tsx, StatCard.tsx)
-│   │   │   ├── pos/           # POSTerminal.tsx, ItemSearchDropdown.tsx, BatchSelectorModal.tsx, PaymentModal.tsx, etc.
+│   │   │   ├── pos/           # POSTerminal, BatchSelector, Payment/Return/Receipt modals, ShortcutsHelpModal
 │   │   │   ├── khata/         # CustomerKhataView.tsx, SupplierKhataView.tsx
-│   │   │   ├── inventory/     # MedicineMaster.tsx, ExpiryWatchlist.tsx
+│   │   │   ├── inventory/     # MedicineMaster, ItemEditorModal, ExpiryWatchlist
 │   │   │   ├── purchases/     # PurchaseEntry.tsx (GRN)
-│   │   │   └── reports/       # DashboardOverview.tsx, DaybookReconciliation.tsx, SettingsView.tsx
+│   │   │   └── reports/       # DashboardOverview, DaybookReconciliation, CashDrawerView, SettingsView
 │   │   ├── context/           # AppContext.tsx, ToastContext.tsx
 │   │   ├── services/          # api.ts REST client
 │   │   ├── types/             # index.ts (TypeScript data models & interfaces)
-│   │   ├── utils/             # stockFormat.ts (Dual UoM formatter)
-│   │   ├── styles/            # pharmacy-bootstrap.css
-│   │   ├── App.tsx            # Main app shell & tabs
+│   │   ├── utils/             # stockFormat.ts, barcode.ts, sound.ts
+│   │   ├── styles/            # pharmacy-bootstrap.css (Rx Pulse theme)
+│   │   ├── App.tsx            # App shell & grouped menu navigation
 │   │   └── main.tsx
 │   ├── package.json
-│   ├── tsconfig.json
+│   ├── tsconfig.json          # Strict TypeScript enabled
 │   └── vite.config.ts
-├── run_desktop.bat            # One-click desktop launcher
-├── run_dev.bat                # Dev servers launcher
+├── run_desktop.bat            # One-click desktop launcher (dedicated app profile)
+├── dev.bat                    # Dev servers + taskbar app window
+├── run_dev.bat                # Dev servers only
 ├── build_all.bat              # Full project compiler script
 └── README.md
 ```
@@ -138,8 +159,4 @@ Pharmacy_2026/
 ---
 
 ## 🗄️ Pre-Seeded Sample Data
-The application comes pre-loaded with realistic pharmaceutical stock for immediate testing:
-- **Common Medicines**: Panadol 500mg, Panadol Extra, Augmentin 625mg & 1g, Brufen 400mg & DS Suspension, Glucophage 500mg & 850mg, Lipitor 20mg, Risek 20mg & 40mg, Softin 10mg, Flagyl 400mg, Arinac Forte, Disprin, Cac-1000 Plus, Sancos Syrup, Polyfax.
-- **Multiple Batches**: Active healthy batches, near-expiry batches (< 30 days), and one expired batch (`RSK-40-OLD`) to test the automated safety lock.
-- **Customer Khata Accounts**: Regular chronic patients with opening debit balances and credit limits.
-- **Suppliers**: GSK Authorized Distributor, Abbott Healthcare Distribution, Getz Pharma Logistics with payables ledger history.
+The working database ships with a 100-item catalog across 10 categories (analgesics, antibiotics, anti-diabetic, cardiovascular, GI, respiratory and more), with 125 batches including 25 near-expiry lots for FEFO and watchlist testing. Each item carries full master data: generic salt, manufacturer, rack, barcode, pack size, per-pack TP/MRP, per-unit sale rate, stock alert and Rx flag. Store identity and contact details live in the `settings` table (editable from the Settings screen).

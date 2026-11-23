@@ -215,7 +215,7 @@ export function ThermalReceiptModal({
           {/* 1. BRAND HEADER */}
           <div style={{ textAlign: 'center', marginBottom: '6px' }}>
             <div style={{ fontSize: paperSize === '80mm' ? '14px' : '12.5px', fontWeight: 800, letterSpacing: '0.3px', textTransform: 'uppercase' }}>
-              {settings.pharmacy_name || 'AL-SHIFA PHARMACY'}
+              {settings.pharmacy_name || 'A1 PHARMACY'}
             </div>
             <div style={{ fontSize: '9px', color: '#444444', marginTop: '1px' }}>
               {[settings.address || 'Main Boulevard, Gulberg III, Lahore', settings.phone ? `Ph: ${settings.phone}` : '']

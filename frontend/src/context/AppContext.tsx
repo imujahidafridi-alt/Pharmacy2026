@@ -32,7 +32,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   });
 
   const [settings, setSettings] = useState<PharmacySettings>({
-    pharmacy_name: 'Al-Shifa Community Pharmacy',
+    pharmacy_name: 'A1 Pharmacy',
     currency_symbol: 'Rs.',
     phone: '+92 300 1234567',
     address: 'Main Boulevard, Gulberg III, Lahore',

@@ -1786,7 +1786,7 @@ void Database::seedInitialDataIfNeeded() {
     std::cout << "[Seed] Initializing pharmacy database with sample medicines, batches, customers, and suppliers..." << std::endl;
 
     // Default Settings
-    execute("INSERT OR REPLACE INTO settings (key, value) VALUES ('pharmacy_name', 'Al-Shifa Community Pharmacy');");
+    execute("INSERT OR REPLACE INTO settings (key, value) VALUES ('pharmacy_name', 'A1 Pharmacy');");
     execute("INSERT OR REPLACE INTO settings (key, value) VALUES ('phone', '+92 300 1234567');");
     execute("INSERT OR REPLACE INTO settings (key, value) VALUES ('address', 'Main Boulevard, Gulberg III, Lahore');");
     execute("INSERT OR REPLACE INTO settings (key, value) VALUES ('license_number', 'DL-PB-2026-8891');");

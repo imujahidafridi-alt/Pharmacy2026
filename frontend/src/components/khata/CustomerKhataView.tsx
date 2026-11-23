@@ -238,7 +238,7 @@ export function CustomerKhataView() {
     const cleanPhone = phone.replace(/[^0-9]/g, '');
     if (!cleanPhone) return;
 
-    const pharmacy = settings.pharmacy_name || 'AL-SHIFA COMMUNITY PHARMACY';
+    const pharmacy = settings.pharmacy_name || 'A1 PHARMACY';
     const msg =
       `*${pharmacy} — PAYMENT RECEIPT*\n` +
       `Receipt #: ${receiptNo}\n` +
@@ -335,7 +335,7 @@ export function CustomerKhataView() {
   const handleShareWhatsAppReminder = (cust: Customer | null, customPhone?: string) => {
     if (!cust) return;
     const balance = Number(cust.current_balance ?? cust.balance ?? 0);
-    const pharmacy = settings.pharmacy_name || 'AL-SHIFA COMMUNITY PHARMACY';
+    const pharmacy = settings.pharmacy_name || 'A1 PHARMACY';
 
     const msg =
       `*${pharmacy} — ACCOUNT BALANCE NOTICE*\n\n` +

@@ -20,10 +20,10 @@ export function App() {
   const [isFullscreen, setIsFullscreen] = useState<boolean>(() => !!document.fullscreenElement);
   const [openMenu, setOpenMenu] = useState<string | null>(null);
 
-  // Set Desktop Window Title
+  // Set Desktop Window Title from the configured store name
   useEffect(() => {
-    document.title = "Pak Pharmacy & Retail POS — Counter Terminal";
-  }, []);
+    document.title = `${settings.pharmacy_name || 'A1 Pharmacy'} — Counter Terminal`;
+  }, [settings.pharmacy_name]);
 
   // Desktop Native App Event Handlers (Disables web-page behaviors)
   useEffect(() => {

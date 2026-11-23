@@ -1,6 +1,6 @@
 @echo off
 setlocal
-title "Pak Pharmacy & Retail POS — Desktop Launcher"
+title "A1 Pharmacy — Desktop Launcher"
 
 echo ========================================================
 echo   PAK PHARMACY & RETAIL POS - DESKTOP NATIVE LAUNCHER
@@ -31,13 +31,16 @@ if errorlevel 1 (
 )
 
 :: Launch Dedicated Native Desktop Window (Standalone App Mode)
-echo Launching Counter Terminal Window...
+:: A private profile gives the app its own taskbar icon and keeps it separate
+:: from the user's normal browser windows and settings.
+echo Launching A1 Pharmacy Counter Terminal...
+set "APP_PROFILE=%LOCALAPPDATA%\PharmacyPOS\DesktopApp"
 if exist "%ProgramFiles(x86)%\Microsoft\Edge\Application\msedge.exe" (
-    start "" "%ProgramFiles(x86)%\Microsoft\Edge\Application\msedge.exe" --app=http://127.0.0.1:8085/ --window-size=1366,768
+    start "" "%ProgramFiles(x86)%\Microsoft\Edge\Application\msedge.exe" --app=http://127.0.0.1:8085/ --window-size=1366,768 --user-data-dir="%APP_PROFILE%" --no-first-run --no-default-browser-check
 ) else if exist "%ProgramFiles%\Microsoft\Edge\Application\msedge.exe" (
-    start "" "%ProgramFiles%\Microsoft\Edge\Application\msedge.exe" --app=http://127.0.0.1:8085/ --window-size=1366,768
+    start "" "%ProgramFiles%\Microsoft\Edge\Application\msedge.exe" --app=http://127.0.0.1:8085/ --window-size=1366,768 --user-data-dir="%APP_PROFILE%" --no-first-run --no-default-browser-check
 ) else if exist "%ProgramFiles%\Google\Chrome\Application\chrome.exe" (
-    start "" "%ProgramFiles%\Google\Chrome\Application\chrome.exe" --app=http://127.0.0.1:8085/ --window-size=1366,768
+    start "" "%ProgramFiles%\Google\Chrome\Application\chrome.exe" --app=http://127.0.0.1:8085/ --window-size=1366,768 --user-data-dir="%APP_PROFILE%" --no-first-run --no-default-browser-check
 ) else (
     start http://127.0.0.1:8085/
 )

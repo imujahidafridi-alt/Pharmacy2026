@@ -88,7 +88,7 @@ export function KhataReceiptModal({
       return;
     }
 
-    const pharmacy = settings.pharmacy_name || 'AL-SHIFA PHARMACY';
+    const pharmacy = settings.pharmacy_name || 'A1 PHARMACY';
     let msg = '';
 
     if (type === 'PAYMENT' && paymentDetails) {
@@ -255,7 +255,7 @@ export function KhataReceiptModal({
           {/* 1. Header */}
           <div style={{ textAlign: 'center', marginBottom: '6px' }}>
             <div style={{ fontSize: paperSize === '80mm' ? '14px' : '12.5px', fontWeight: 800, letterSpacing: '0.3px', textTransform: 'uppercase' }}>
-              {settings.pharmacy_name || 'AL-SHIFA PHARMACY'}
+              {settings.pharmacy_name || 'A1 PHARMACY'}
             </div>
             <div style={{ fontSize: '9px', color: '#444444', marginTop: '1px' }}>
               {[settings.address || 'Main Boulevard, Gulberg III, Lahore', settings.phone ? `Ph: ${settings.phone}` : '']
