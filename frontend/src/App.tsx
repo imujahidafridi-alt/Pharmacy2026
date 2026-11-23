@@ -18,6 +18,7 @@ export function App() {
   const [currentTime, setCurrentTime] = useState<string>(() => new Date().toLocaleTimeString());
   const [isReturnModalOpen, setIsReturnModalOpen] = useState<boolean>(false);
   const [isFullscreen, setIsFullscreen] = useState<boolean>(() => !!document.fullscreenElement);
+  const [openMenu, setOpenMenu] = useState<string | null>(null);
 
   // Set Desktop Window Title
   useEffect(() => {
@@ -110,20 +111,67 @@ export function App() {
     return () => clearInterval(timer);
   }, []);
 
-  // Top Nav Items matching Blueprint
-  const navTabs = [
-    { id: 'pos', label: 'Sale (POS)' },
-    { id: 'items', label: 'Items' },
-    { id: 'stock', label: 'Stock' },
-    { id: 'purchases', label: 'Purchases' },
-    { id: 'expiry', label: 'Expiry' },
-    { id: 'customers', label: 'Customers' },
-    { id: 'suppliers', label: 'Suppliers' },
-    { id: 'returns', label: 'Returns' },
-    { id: 'drawer', label: 'Cash Drawer' },
-    { id: 'reports', label: 'Reports' },
-    { id: 'settings', label: 'Settings' },
+  // Menu bar: close on outside click or Escape
+  useEffect(() => {
+    if (!openMenu) return;
+    const dismiss = (event: MouseEvent | KeyboardEvent) => {
+      if (event instanceof KeyboardEvent) {
+        if (event.key === 'Escape') setOpenMenu(null);
+        return;
+      }
+      if (!(event.target as HTMLElement)?.closest('.app-menu-bar')) setOpenMenu(null);
+    };
+    document.addEventListener('mousedown', dismiss);
+    document.addEventListener('keydown', dismiss);
+    return () => {
+      document.removeEventListener('mousedown', dismiss);
+      document.removeEventListener('keydown', dismiss);
+    };
+  }, [openMenu]);
+
+  // Grouped desktop menu bar
+  type MenuItem = { id: string; label: string; icon: string; shortcut?: string };
+  type MenuGroup = { id: string; label: string; items: MenuItem[] };
+
+  const MENUS: MenuGroup[] = [
+    {
+      id: 'sale',
+      label: 'Sale',
+      items: [
+        { id: 'pos', label: 'Sale Terminal', icon: 'bi-cash-coin', shortcut: 'F9' },
+        { id: 'returns', label: 'Sales Return / Wapsi', icon: 'bi-arrow-return-left', shortcut: 'Alt+W' },
+      ],
+    },
+    {
+      id: 'inventory',
+      label: 'Inventory',
+      items: [
+        { id: 'items', label: 'Items & Pricing', icon: 'bi-capsule' },
+        { id: 'stock', label: 'Stock Overview', icon: 'bi-boxes' },
+        { id: 'expiry', label: 'Expiry Watchlist', icon: 'bi-hourglass-split' },
+        { id: 'purchases', label: 'Purchases / GRN', icon: 'bi-truck' },
+      ],
+    },
+    {
+      id: 'accounts',
+      label: 'Accounts',
+      items: [
+        { id: 'customers', label: 'Customers / Khata', icon: 'bi-people' },
+        { id: 'suppliers', label: 'Suppliers / Payables', icon: 'bi-building' },
+        { id: 'drawer', label: 'Cash Drawer', icon: 'bi-cash-stack' },
+      ],
+    },
+    {
+      id: 'system',
+      label: 'System',
+      items: [
+        { id: 'reports', label: 'Daybook & Reports', icon: 'bi-journal-text' },
+        { id: 'settings', label: 'Settings', icon: 'bi-gear' },
+      ],
+    },
   ];
+
+  const activeMenuId = MENUS.find((menu) => menu.items.some((item) => item.id === activeTab))?.id;
 
   const handleTabClick = (tabId: string) => {
     if (tabId === 'returns') {
@@ -132,6 +180,23 @@ export function App() {
       setActiveTab(tabId);
     }
   };
+
+  const renderMenuItems = (items: MenuItem[]) =>
+    items.map((item) => (
+      <button
+        key={item.id}
+        type="button"
+        className={`app-menu-item ${activeTab === item.id ? 'is-active' : ''}`}
+        onClick={() => {
+          handleTabClick(item.id);
+          setOpenMenu(null);
+        }}
+      >
+        <i className={`bi ${item.icon}`}></i>
+        <span>{item.label}</span>
+        {item.shortcut && <kbd>{item.shortcut}</kbd>}
+      </button>
+    ));
 
   return (
     <div
@@ -146,108 +211,88 @@ export function App() {
         fontFamily: "'Inter', 'Roboto', sans-serif",
       }}
     >
-      {/* Top Navigation Bar (#navBar) matching Qt reference */}
-      <header
-        id="navBar"
-        className="d-flex align-items-center justify-content-between px-2 flex-shrink-0"
-        style={{
-          height: '36px',
-          minHeight: '36px',
-          maxHeight: '36px',
-          backgroundColor: 'var(--surface-bg)',
-          borderBottom: '1px solid var(--border-color)',
-          zIndex: 1030,
-        }}
-      >
-        {/* Left: Window Tabs */}
-        <nav className="d-flex align-items-center h-100 gap-1 overflow-x-auto">
-          {navTabs.map((tab) => {
-            const isActive = activeTab === tab.id;
-            return (
+      {/* Compact grouped desktop menu bar */}
+      <header id="navBar" className="app-menu-bar flex-shrink-0">
+        <div className="app-menu-brand">
+          <span className="app-menu-mark">℞</span>
+          <span className="app-menu-brand-text">{settings.pharmacy_name || 'Pharmacy POS'}</span>
+        </div>
+
+        <nav className="app-menu-groups">
+          {MENUS.map((menu) => (
+            <div
+              key={menu.id}
+              className="app-menu-group"
+              onMouseEnter={() => {
+                if (openMenu && openMenu !== 'all') setOpenMenu(menu.id);
+              }}
+            >
               <button
-                key={tab.id}
                 type="button"
-                className={`navBtn ${isActive ? 'checked' : ''}`}
-                onClick={() => handleTabClick(tab.id)}
+                className={`app-menu-trigger ${activeMenuId === menu.id ? 'is-active' : ''} ${
+                  openMenu === menu.id ? 'is-open' : ''
+                }`}
+                onClick={() => setOpenMenu(openMenu === menu.id ? null : menu.id)}
+                aria-expanded={openMenu === menu.id}
               >
-                {tab.label}
+                {menu.label}
+                <i className="bi bi-chevron-down app-menu-caret"></i>
               </button>
-            );
-          })}
+              {openMenu === menu.id && (
+                <div className="app-menu-dropdown">{renderMenuItems(menu.items)}</div>
+              )}
+            </div>
+          ))}
         </nav>
 
-        {/* Right: Connection, Counter Badge, Operator, Clock & Controls */}
-        <div className="d-flex align-items-center gap-2 flex-shrink-0">
-          {/* Backend connectivity at a glance */}
+        <div className="app-menu-mobile">
+          <button
+            type="button"
+            className={`app-menu-mobile-trigger ${openMenu === 'all' ? 'is-open' : ''}`}
+            onClick={() => setOpenMenu(openMenu === 'all' ? null : 'all')}
+          >
+            <i className="bi bi-list"></i>
+            <span>Menu</span>
+          </button>
+          {openMenu === 'all' && (
+            <div className="app-menu-dropdown app-menu-dropdown-mobile">
+              {MENUS.map((menu) => (
+                <div key={menu.id} className="app-menu-mobile-group">
+                  <div className="app-menu-mobile-title">{menu.label}</div>
+                  {renderMenuItems(menu.items)}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="app-menu-meta">
           <span
             title={serverOnline ? 'Backend online' : 'Backend offline — check pharmacy_server.exe'}
-            style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+            className="app-menu-status"
           >
             <span className={`pulse-dot ${serverOnline ? '' : 'offline'}`}></span>
           </span>
-
-          {/* Counter ID Badge */}
-          <span
-            id="navMetaBadge"
-            style={{
-              backgroundColor: 'var(--badge-bg)',
-              color: 'var(--badge-text)',
-              border: '1px solid var(--badge-border)',
-              borderRadius: '3px',
-              padding: '2px 8px',
-              fontSize: '11px',
-              fontWeight: 700,
-            }}
-          >
-            C01
-          </span>
-
-          {/* Logged in User */}
-          <span
-            id="navMetaBadge"
-            style={{
-              backgroundColor: 'var(--badge-bg)',
-              color: 'var(--badge-text)',
-              border: '1px solid var(--badge-border)',
-              borderRadius: '3px',
-              padding: '2px 8px',
-              fontSize: '11px',
-              fontWeight: 600,
-            }}
-          >
-            admin
-          </span>
-
-          {/* Clock */}
-          <span
-            className="font-monospace text-secondary"
-            style={{ fontSize: '11px', fontWeight: 600, minWidth: '75px', textAlign: 'center', color: 'var(--text-secondary)' }}
-          >
-            {currentTime}
-          </span>
-
-          {/* Theme Toggle */}
+          <span className="app-menu-chip" title="Counter">C01</span>
+          <span className="app-menu-chip app-meta-optional" title="Operator">admin</span>
+          <span className="app-menu-clock app-meta-optional">{currentTime}</span>
           <button
             type="button"
-            className="btn btn-sm btn-link p-1 text-decoration-none"
+            className="app-menu-icon-btn"
             onClick={toggleTheme}
             title={theme === 'dark' ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
-            style={{ fontSize: '14px', lineHeight: 1, color: 'var(--text-secondary)' }}
           >
             {theme === 'dark' ? (
               <i className="bi bi-sun-fill text-warning"></i>
             ) : (
-              <i className="bi bi-moon-stars" style={{ color: 'var(--text-secondary)' }}></i>
+              <i className="bi bi-moon-stars"></i>
             )}
           </button>
-
-          {/* Native Desktop Fullscreen Toggle (F11) */}
           <button
             type="button"
-            className="btn btn-sm btn-link p-1 text-decoration-none"
+            className="app-menu-icon-btn"
             onClick={toggleFullscreen}
             title={isFullscreen ? 'Exit Fullscreen (F11)' : 'Desktop Fullscreen Mode (F11)'}
-            style={{ fontSize: '13px', lineHeight: 1, color: 'var(--text-secondary)' }}
           >
             {isFullscreen ? (
               <i className="bi bi-fullscreen-exit" style={{ color: 'var(--brand-teal)' }}></i>
@@ -262,8 +307,8 @@ export function App() {
       <main
         className="flex-grow-1 overflow-hidden"
         style={{
-          height: 'calc(100vh - 36px)',
-          maxHeight: 'calc(100vh - 36px)',
+          height: 'calc(100vh - 38px)',
+          maxHeight: 'calc(100vh - 38px)',
           width: '100vw',
         }}
       >
