@@ -22,32 +22,6 @@ export const CATEGORIES = [
   'Dermatology',
 ];
 
-export const DOSAGE_FORMS = [
-  'Tablet',
-  'Capsule',
-  'Syrup',
-  'Suspension',
-  'Injection',
-  'Ointment',
-  'Cream',
-  'Gel',
-  'Eye Drops',
-  'Inhaler',
-  'Sachet',
-  'Powder',
-];
-
-export const UNIT_TYPES = [
-  'Unit',
-  'Pack',
-  'Strip',
-  'Bottle',
-  'Tube',
-  'Ampoule',
-  'Inhaler',
-  'Sachet',
-];
-
 // Used as a fallback if an item carries a category we have never seen before
 export function normalizeCategory(value?: string): string {
   if (!value) return 'Tablets & Capsules';

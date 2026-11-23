@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Medicine } from '../../types';
 import { Modal } from '../ui/Modal';
-import { CATEGORIES, DOSAGE_FORMS, UNIT_TYPES } from '../../utils/catalog';
+import { CATEGORIES } from '../../utils/catalog';
 
 interface ItemEditorModalProps {
   isOpen: boolean;
@@ -27,8 +27,6 @@ export function ItemEditorModal({
   const [barcode, setBarcode] = useState('');
   const [code, setCode] = useState('');
   const [rackLocation, setRackLocation] = useState('');
-  const [dosageForm, setDosageForm] = useState('Tablet');
-  const [unitType, setUnitType] = useState('Unit');
 
   // Kept as strings so decimal typing and backspacing feel natural
   const [packSizeStr, setPackSizeStr] = useState('1');
@@ -58,8 +56,6 @@ export function ItemEditorModal({
       setBarcode(medicine.barcode || '');
       setCode(medicine.code || '');
       setRackLocation(medicine.rack_location || '');
-      setDosageForm(medicine.dosage_form || 'Tablet');
-      setUnitType(medicine.unit_type || 'Unit');
       const size = Number(medicine.pack_size || medicine.pieces_per_strip || 1);
       setPackSizeStr(String(size > 0 ? size : 1));
       setInitialStockStr('0');
@@ -82,8 +78,6 @@ export function ItemEditorModal({
       setBarcode('');
       setCode('');
       setRackLocation('');
-      setDosageForm('Tablet');
-      setUnitType('Unit');
       setPackSizeStr('1');
       setInitialStockStr('0');
       setCostPriceStr('0.00');
@@ -159,11 +153,6 @@ export function ItemEditorModal({
       );
       return;
     }
-    if (!isEditMode && initialStock > 0 && (!batchNumber.trim() || !expiryDate)) {
-      setErrorMessage('For opening stock, please enter a batch number and expiry date.');
-      return;
-    }
-
     setSaving(true);
     try {
       const payload: Partial<Medicine> = {
@@ -175,8 +164,6 @@ export function ItemEditorModal({
         barcode: barcode.trim(),
         code: code.trim() || undefined,
         rack_location: rackLocation.trim(),
-        dosage_form: dosageForm,
-        unit_type: unitType,
         pack_size: packVal,
         pieces_per_strip: packVal,
         strips_per_box: 1,
@@ -290,25 +277,8 @@ export function ItemEditorModal({
             </select>
           </div>
           <div className="col-md-6">
-            <label className="form-label small fw-semibold mb-1">Form</label>
-            <select className="form-select form-select-sm" value={dosageForm} onChange={(e) => setDosageForm(e.target.value)}
-              style={{ backgroundColor: 'var(--input-bg)', borderColor: 'var(--input-border)', color: 'var(--input-text)' }}>
-              {DOSAGE_FORMS.map((form) => <option key={form} value={form}>{form}</option>)}
-            </select>
-          </div>
-        </div>
-
-        <div className="row g-2">
-          <div className="col-md-6">
-            <label className="form-label small fw-semibold mb-1">Unit</label>
-            <select className="form-select form-select-sm" value={unitType} onChange={(e) => setUnitType(e.target.value)}
-              style={{ backgroundColor: 'var(--input-bg)', borderColor: 'var(--input-border)', color: 'var(--input-text)' }}>
-              {UNIT_TYPES.map((unit) => <option key={unit} value={unit}>{unit}</option>)}
-            </select>
-          </div>
-          <div className="col-md-6">
             <label className="form-label small fw-semibold mb-1">Shelf / Rack</label>
-            {textInput(rackLocation, (v) => setRackLocation(v.toUpperCase()), 'e.g. A-01', 160)}
+            {textInput(rackLocation, (v) => setRackLocation(v.toUpperCase()), 'e.g. A-01', 200)}
           </div>
         </div>
 
@@ -365,7 +335,7 @@ export function ItemEditorModal({
             <hr className="my-1" />
             <div className="small fw-bold text-uppercase" style={{ color: 'var(--brand-teal)', fontSize: '10.5px' }}>Opening Stock (optional)</div>
             <div className="alert alert-light py-2 px-3 mb-1" style={{ fontSize: '11px' }}>
-              Leave stock at 0 if you will add it through <strong>Purchases / GRN</strong>. If you enter stock, a batch number and expiry date are required.
+              Enter how many loose units you have now. <strong>Batch number and expiry are optional</strong> — if you leave them blank, a default batch is created so the item can be sold. You can fill in the real details later from <strong>Batches</strong>. Leave stock at 0 if you will add it through Purchases / GRN.
             </div>
             <div className="row g-2">
               <div className="col-md-4">

@@ -4,6 +4,7 @@ import { Medicine } from '../../types';
 import { useToast } from '../../context/ToastContext';
 import { ItemEditorModal } from './ItemEditorModal';
 import { StockAdjustModal } from './StockAdjustModal';
+import { BatchManageModal } from './BatchManageModal';
 import { CATEGORIES } from '../../utils/catalog';
 import { formatStockDisplay } from '../../utils/stockFormat';
 
@@ -31,6 +32,7 @@ export function MedicineMaster() {
   const [modalMedicine, setModalMedicine] = useState<Medicine | null>(null);
   const [isAdjustOpen, setIsAdjustOpen] = useState<boolean>(false);
   const [adjustMedicine, setAdjustMedicine] = useState<Medicine | null>(null);
+  const [isBatchesOpen, setIsBatchesOpen] = useState<boolean>(false);
   const [sortKey, setSortKey] = useState<string>('name');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
 
@@ -169,6 +171,11 @@ export function MedicineMaster() {
     if (!selectedMed) return;
     setAdjustMedicine(selectedMed);
     setIsAdjustOpen(true);
+  };
+
+  const handleOpenBatches = () => {
+    if (!selectedMed) return;
+    setIsBatchesOpen(true);
   };
 
   const handleDeleteItem = async () => {
@@ -402,6 +409,17 @@ export function MedicineMaster() {
                 <span>✕</span> Deactivate
               </>
             )}
+          </button>
+
+          <button
+            type="button"
+            className="btn btn-sm secondaryBtn d-flex align-items-center gap-1 px-3"
+            disabled={!selectedMed}
+            onClick={handleOpenBatches}
+            title="Edit batch number and expiry later"
+            style={{ fontSize: '12px', fontWeight: 600, height: '30px', whiteSpace: 'nowrap' }}
+          >
+            <i className="bi bi-qr-code"></i> Batches
           </button>
 
           {/* Adjust Stock — deliberately separate from pricing */}
@@ -738,6 +756,13 @@ export function MedicineMaster() {
         medicine={adjustMedicine}
         onClose={() => setIsAdjustOpen(false)}
         onAdjusted={loadMedicines}
+      />
+
+      <BatchManageModal
+        isOpen={isBatchesOpen}
+        medicine={selectedMed}
+        onClose={() => setIsBatchesOpen(false)}
+        onUpdated={loadMedicines}
       />
     </div>
   );

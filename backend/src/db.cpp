@@ -560,12 +560,19 @@ int64_t Database::createMedicine(const json& m) {
     if (rc != SQLITE_DONE) return -1;
     int64_t medId = lastInsertRowId();
 
-    // Stock is only created when the user actually supplies a batch number and
-    // expiry date. Never invent an expiry date — FEFO depends on real dates.
+    // Stock with no batch/expiry is still accepted: a clearly-marked default
+    // batch is created so a busy cashier can sell immediately. The batch can be
+    // corrected later from the Batches screen. 2099-12-31 means "expiry unknown"
+    // and sorts last in FEFO, so it never jumps ahead of real batches.
     int initialStock = m.value("initial_stock", 0);
     std::string batchNo = m.value("batch_number", "");
     std::string expiry = m.value("expiry_date", "");
-    if (initialStock > 0 && !batchNo.empty() && expiry.size() >= 10) {
+    if (initialStock > 0) {
+        if (batchNo.empty()) batchNo = "DEFAULT-" + std::to_string(medId);
+        if (expiry.size() < 10) {
+            json setting = query("SELECT value FROM settings WHERE key = 'default_batch_expiry';");
+            expiry = setting.empty() ? "2099-12-31" : setting[0].value("value", "2099-12-31");
+        }
         const char* bSql = "INSERT INTO batches (medicine_id, batch_number, expiry_date, purchase_rate, sale_rate, quantity) VALUES (?, ?, ?, ?, ?, ?);";
         sqlite3_stmt* bStmt;
         if (sqlite3_prepare_v2(db, bSql, -1, &bStmt, nullptr) == SQLITE_OK) {
@@ -765,16 +772,38 @@ int64_t Database::createBatch(const json& b) {
 
 bool Database::updateBatch(int id, const json& b) {
     std::lock_guard<std::mutex> lock(dbMutex);
+    json existing = query("SELECT * FROM batches WHERE id = " + std::to_string(id) + ";");
+    if (existing.empty()) return false;
+
+    // Only overwrite fields the caller actually supplied — editing the batch
+    // number or expiry must never wipe rates or stock.
+    auto text = [&](const char* key, const std::string& fallback) {
+        return b.contains(key) ? b.value(key, fallback) : existing[0].value(key, fallback);
+    };
+    auto number = [&](const char* key, double fallback) {
+        return b.contains(key) ? b.value(key, fallback) : existing[0].value(key, fallback);
+    };
+    auto integer = [&](const char* key, int fallback) {
+        return b.contains(key) ? b.value(key, fallback) : existing[0].value(key, fallback);
+    };
+
+    std::string batchNo = text("batch_number", "");
+    std::string expiry = text("expiry_date", "");
+    double purchaseRate = number("purchase_rate", 0.0);
+    double saleRate = number("sale_rate", 0.0);
+    int quantity = integer("quantity", 0);
+    int quarantined = integer("is_quarantined", 0);
+
     sqlite3_stmt* stmt;
     const char* sql = "UPDATE batches SET batch_number=?, expiry_date=?, purchase_rate=?, sale_rate=?, quantity=?, is_quarantined=? WHERE id=?;";
     if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
 
-    sqlite3_bind_text(stmt, 1, b.value("batch_number", "").c_str(), -1, SQLITE_TRANSIENT);
-    sqlite3_bind_text(stmt, 2, b.value("expiry_date", "").c_str(), -1, SQLITE_TRANSIENT);
-    sqlite3_bind_double(stmt, 3, b.value("purchase_rate", 0.0));
-    sqlite3_bind_double(stmt, 4, b.value("sale_rate", 0.0));
-    sqlite3_bind_int(stmt, 5, b.value("quantity", 0));
-    sqlite3_bind_int(stmt, 6, b.value("is_quarantined", 0));
+    sqlite3_bind_text(stmt, 1, batchNo.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 2, expiry.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_double(stmt, 3, purchaseRate);
+    sqlite3_bind_double(stmt, 4, saleRate);
+    sqlite3_bind_int(stmt, 5, quantity);
+    sqlite3_bind_int(stmt, 6, quarantined);
     sqlite3_bind_int(stmt, 7, id);
 
     int rc = sqlite3_step(stmt);
