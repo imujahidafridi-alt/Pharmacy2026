@@ -98,6 +98,12 @@ int main(int argc, char* argv[]) {
     svr.Post("/api/medicines", [&db](const httplib::Request& req, httplib::Response& res) {
         try {
             json body = json::parse(req.body);
+            json check = db.validateMedicine(body);
+            if (check.contains("error")) {
+                res.status = 400;
+                res.set_content(check.dump(), "application/json");
+                return;
+            }
             int64_t id = db.createMedicine(body);
             if (id > 0) {
                 res.status = 201;
@@ -116,6 +122,12 @@ int main(int argc, char* argv[]) {
         try {
             int id = std::stoi(req.matches[1]);
             json body = json::parse(req.body);
+            json check = db.validateMedicine(body, id);
+            if (check.contains("error")) {
+                res.status = 400;
+                res.set_content(check.dump(), "application/json");
+                return;
+            }
             if (db.updateMedicine(id, body)) {
                 res.set_content("{\"success\":true}", "application/json");
             } else {
@@ -149,11 +161,34 @@ int main(int argc, char* argv[]) {
 
     svr.Delete(R"(/api/medicines/(\d+))", [&db](const httplib::Request& req, httplib::Response& res) {
         int id = std::stoi(req.matches[1]);
+        json guard = db.canDeleteMedicine(id);
+        if (guard.contains("error")) {
+            res.status = 400;
+            res.set_content(guard.dump(), "application/json");
+            return;
+        }
         if (db.deleteMedicine(id)) {
             res.set_content("{\"success\":true}", "application/json");
         } else {
             res.status = 400;
-            res.set_content("{\"error\":\"Failed to delete medicine\"}", "application/json");
+            res.set_content("{\"error\":\"Could not delete this item\"}", "application/json");
+        }
+    });
+
+    svr.Post(R"(/api/medicines/(\d+)/adjust-stock)", [&db](const httplib::Request& req, httplib::Response& res) {
+        try {
+            int id = std::stoi(req.matches[1]);
+            json body = json::parse(req.body);
+            json result = db.adjustStock(
+                id,
+                body.value("batch_id", 0),
+                body.value("delta", 0),
+                body.value("reason", "Manual stock adjustment"));
+            if (result.contains("error")) res.status = 400;
+            res.set_content(result.dump(), "application/json");
+        } catch (const std::exception& e) {
+            res.status = 400;
+            res.set_content(json({{"error", e.what()}}).dump(), "application/json");
         }
     });
 

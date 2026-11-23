@@ -31,9 +31,12 @@ public:
     // Medicines
     json getMedicines(const std::string& search = "", const std::string& category = "", const std::string& status = "");
     json getMedicineById(int id);
+    json validateMedicine(const json& med, int excludeId = 0);
     int64_t createMedicine(const json& med);
     bool updateMedicine(int id, const json& med);
     bool deleteMedicine(int id);
+    json canDeleteMedicine(int id);
+    json adjustStock(int medicineId, int batchId, int delta, const std::string& reason);
 
     // Batches
     json getBatches(int medicineId = -1);

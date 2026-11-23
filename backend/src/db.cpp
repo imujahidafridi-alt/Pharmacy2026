@@ -335,6 +335,15 @@ bool Database::createTables() {
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP
         );
 
+        CREATE TABLE IF NOT EXISTS stock_adjustments (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            medicine_id INTEGER NOT NULL,
+            batch_id INTEGER NOT NULL,
+            delta INTEGER NOT NULL,
+            reason TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+
         CREATE TABLE IF NOT EXISTS parked_invoices (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             customer_name TEXT,
@@ -436,6 +445,42 @@ json Database::getMedicineById(int id) {
     return med;
 }
 
+json Database::validateMedicine(const json& m, int excludeId) {
+    std::string name = m.value("name", "");
+    while (!name.empty() && name.back() == ' ') name.pop_back();
+    if (name.empty()) return {{"error", "Please enter an item name."}};
+
+    int pack = m.value("pack_size", m.value("pieces_per_strip", 1));
+    if (pack < 1) return {{"error", "Packing must be 1 or more units."}};
+
+    double cost = m.value("cost_price", 0.0);
+    double mrp = m.value("mrp", 0.0);
+    double sale = m.value("sale_price", 0.0);
+    if (cost < 0 || mrp < 0 || sale < 0) {
+        return {{"error", "Prices cannot be less than zero."}};
+    }
+    if (cost > 0 && sale > 0 && sale < (cost / pack) - 0.001) {
+        return {{"error", "Sale rate per unit is lower than the purchase cost per unit."}};
+    }
+    if (mrp > 0 && sale * pack > mrp + 0.001) {
+        return {{"error", "Sale rate for a full pack is higher than the printed MRP."}};
+    }
+
+    std::string exclude = excludeId > 0 ? " AND id != " + std::to_string(excludeId) : "";
+    std::string barcode = m.value("barcode", "");
+    if (!barcode.empty()) {
+        json dup = query("SELECT name FROM medicines WHERE barcode = " + sqlQuote(barcode) + exclude + " LIMIT 1;");
+        if (!dup.empty()) {
+            return {{"error", "This barcode already belongs to " + dup[0].value("name", "another item") + "."}};
+        }
+    }
+    json dupName = query("SELECT id FROM medicines WHERE LOWER(name) = LOWER(" + sqlQuote(name) + ")" + exclude + " LIMIT 1;");
+    if (!dupName.empty()) {
+        return {{"error", "An item with this name already exists."}};
+    }
+    return {{"valid", true}};
+}
+
 int64_t Database::createMedicine(const json& m) {
     std::lock_guard<std::mutex> lock(dbMutex);
     std::string name = m.value("name", "");
@@ -515,18 +560,18 @@ int64_t Database::createMedicine(const json& m) {
     if (rc != SQLITE_DONE) return -1;
     int64_t medId = lastInsertRowId();
 
-    // Auto-create initial stock batch if salePrice > 0 or initialStock > 0 so item is immediately active and sellable in POS
-    int initialStock = m.value("current_stock", m.value("initial_stock", m.value("total_stock", 0)));
-    if (salePrice > 0 || initialStock > 0) {
-        char bCode[32];
-        snprintf(bCode, sizeof(bCode), "BN-%d-01", (int)medId);
-        std::string exp = "2028-12-31";
+    // Stock is only created when the user actually supplies a batch number and
+    // expiry date. Never invent an expiry date — FEFO depends on real dates.
+    int initialStock = m.value("initial_stock", 0);
+    std::string batchNo = m.value("batch_number", "");
+    std::string expiry = m.value("expiry_date", "");
+    if (initialStock > 0 && !batchNo.empty() && expiry.size() >= 10) {
         const char* bSql = "INSERT INTO batches (medicine_id, batch_number, expiry_date, purchase_rate, sale_rate, quantity) VALUES (?, ?, ?, ?, ?, ?);";
         sqlite3_stmt* bStmt;
         if (sqlite3_prepare_v2(db, bSql, -1, &bStmt, nullptr) == SQLITE_OK) {
             sqlite3_bind_int64(bStmt, 1, medId);
-            sqlite3_bind_text(bStmt, 2, bCode, -1, SQLITE_TRANSIENT);
-            sqlite3_bind_text(bStmt, 3, exp.c_str(), -1, SQLITE_TRANSIENT);
+            sqlite3_bind_text(bStmt, 2, batchNo.c_str(), -1, SQLITE_TRANSIENT);
+            sqlite3_bind_text(bStmt, 3, expiry.c_str(), -1, SQLITE_TRANSIENT);
             sqlite3_bind_double(bStmt, 4, costPrice > 0 ? costPrice : salePrice * 0.8);
             sqlite3_bind_double(bStmt, 5, salePrice);
             sqlite3_bind_int(bStmt, 6, initialStock);
@@ -611,52 +656,57 @@ bool Database::updateMedicine(int id, const json& m) {
     // overwritten when the medicine master is edited. Each batch can have a different
     // purchase cost; replacing them all used to corrupt the below-cost guard.
 
-    // Direct Stock Adjustment from Edit Modal
-    if (m.contains("current_stock") || m.contains("total_stock")) {
-        int newStock = m.value("current_stock", m.value("total_stock", 0));
-        if (newStock < 0) newStock = 0;
-        std::string checkBatchSql = "SELECT id, quantity FROM batches WHERE medicine_id = " + std::to_string(id) + " ORDER BY id ASC;";
-        json batchesList = query(checkBatchSql);
-        if (!batchesList.empty()) {
-            if (batchesList.size() == 1) {
-                int bId = batchesList[0]["id"].get<int>();
-                std::string upd = "UPDATE batches SET quantity = " + std::to_string(newStock) + " WHERE id = " + std::to_string(bId) + ";";
-                execute(upd);
-            } else {
-                int sumOthers = 0;
-                for (size_t i = 1; i < batchesList.size(); i++) {
-                    sumOthers += batchesList[i].value("quantity", 0);
-                }
-                int primaryQty = std::max(0, newStock - sumOthers);
-                int primaryId = batchesList[0]["id"].get<int>();
-                std::string upd = "UPDATE batches SET quantity = " + std::to_string(primaryQty) + " WHERE id = " + std::to_string(primaryId) + ";";
-                execute(upd);
-            }
-        } else if (newStock > 0 || salePrice > 0) {
-            char bCode[32];
-            snprintf(bCode, sizeof(bCode), "BN-%d-01", id);
-            std::string exp = "2028-12-31";
-            const char* bSql = "INSERT INTO batches (medicine_id, batch_number, expiry_date, purchase_rate, sale_rate, quantity) VALUES (?, ?, ?, ?, ?, ?);";
-            sqlite3_stmt* bStmt;
-            if (sqlite3_prepare_v2(db, bSql, -1, &bStmt, nullptr) == SQLITE_OK) {
-                sqlite3_bind_int64(bStmt, 1, id);
-                sqlite3_bind_text(bStmt, 2, bCode, -1, SQLITE_TRANSIENT);
-                sqlite3_bind_text(bStmt, 3, exp.c_str(), -1, SQLITE_TRANSIENT);
-                sqlite3_bind_double(bStmt, 4, costPrice > 0 ? costPrice : salePrice * 0.8);
-                sqlite3_bind_double(bStmt, 5, salePrice);
-                sqlite3_bind_int(bStmt, 6, newStock);
-                sqlite3_step(bStmt);
-                sqlite3_finalize(bStmt);
-            }
-        }
-    }
+    // Stock is NEVER changed from the pricing form. Use the dedicated
+    // "Adjust Stock" action (/api/medicines/:id/adjust-stock) so every change
+    // targets a real batch and is recorded in stock_adjustments.
 
     return true;
+}
+
+json Database::canDeleteMedicine(int id) {
+    std::lock_guard<std::mutex> lock(dbMutex);
+    json batches = query("SELECT COALESCE(SUM(quantity), 0) AS qty, COUNT(*) AS lots FROM batches WHERE medicine_id = " + std::to_string(id) + ";");
+    if (!batches.empty() && batches[0].value("qty", 0) > 0) {
+        return {{"error", "This item still has stock. Adjust or sell the stock before deleting it."}};
+    }
+    json sold = query("SELECT COUNT(*) AS c FROM invoice_items WHERE medicine_id = " + std::to_string(id) + ";");
+    if (!sold.empty() && sold[0]["c"].get<int>() > 0) {
+        return {{"error", "This item appears on old bills. Deactivate it instead to keep history correct."}};
+    }
+    return {{"can_delete", true}};
 }
 
 bool Database::deleteMedicine(int id) {
     std::lock_guard<std::mutex> lock(dbMutex);
     return execute("DELETE FROM medicines WHERE id = " + std::to_string(id));
+}
+
+json Database::adjustStock(int medicineId, int batchId, int delta, const std::string& reason) {
+    std::lock_guard<std::mutex> lock(dbMutex);
+    if (delta == 0) return {{"error", "Enter how many units to add or remove."}};
+    json batch = query("SELECT id, quantity, batch_number FROM batches WHERE id = " + std::to_string(batchId) +
+                       " AND medicine_id = " + std::to_string(medicineId) + ";");
+    if (batch.empty()) return {{"error", "This batch no longer exists for the selected item."}};
+    int current = batch[0].value("quantity", 0);
+    if (current + delta < 0) {
+        return {{"error", "Cannot remove " + std::to_string(std::abs(delta)) + " units — this batch only has " +
+                          std::to_string(current) + "."}};
+    }
+    beginTransaction();
+    execute("UPDATE batches SET quantity = quantity + " + std::to_string(delta) + " WHERE id = " + std::to_string(batchId) + ";");
+    sqlite3_stmt* stmt;
+    const char* sql = "INSERT INTO stock_adjustments (medicine_id, batch_id, delta, reason) VALUES (?, ?, ?, ?);";
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) == SQLITE_OK) {
+        sqlite3_bind_int(stmt, 1, medicineId);
+        sqlite3_bind_int(stmt, 2, batchId);
+        sqlite3_bind_int(stmt, 3, delta);
+        sqlite3_bind_text(stmt, 4, reason.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_step(stmt);
+        sqlite3_finalize(stmt);
+    }
+    commit();
+    return {{"success", true}, {"new_quantity", current + delta},
+            {"batch_number", batch[0].value("batch_number", "")}};
 }
 
 // ---------------- BATCHES & EXPIRY ----------------

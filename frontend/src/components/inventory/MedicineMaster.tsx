@@ -3,18 +3,9 @@ import { api } from '../../services/api';
 import { Medicine } from '../../types';
 import { useToast } from '../../context/ToastContext';
 import { ItemEditorModal } from './ItemEditorModal';
-
-const CATEGORIES = [
-  'All Categories',
-  'Baby Care',
-  'Beverages & Nutrition',
-  'Creams & Ointments',
-  'General Retail / First Aid',
-  'Injections & Infusions',
-  'Personal Care',
-  'Syrups & Suspensions',
-  'Tablets & Capsules',
-];
+import { StockAdjustModal } from './StockAdjustModal';
+import { CATEGORIES } from '../../utils/catalog';
+import { formatStockDisplay } from '../../utils/stockFormat';
 
 export function MedicineMaster() {
   const toast = useToast();
@@ -24,6 +15,7 @@ export function MedicineMaster() {
 
   // Filters
   const [search, setSearch] = useState<string>('');
+  const [debouncedSearch, setDebouncedSearch] = useState<string>('');
   const [categoryFilter, setCategoryFilter] = useState<string>('All Categories');
   const [statusFilter, setStatusFilter] = useState<string>('1'); // '1' = Active, '0' = Inactive, '-1' = All
 
@@ -37,16 +29,21 @@ export function MedicineMaster() {
   // Modal State
   const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
   const [modalMedicine, setModalMedicine] = useState<Medicine | null>(null);
+  const [isAdjustOpen, setIsAdjustOpen] = useState<boolean>(false);
+  const [adjustMedicine, setAdjustMedicine] = useState<Medicine | null>(null);
+  const [sortKey, setSortKey] = useState<string>('name');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
 
   const searchInputRef = useRef<HTMLInputElement>(null);
   const tableRef = useRef<HTMLTableElement>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
 
   // Load medicines from backend
   const loadMedicines = async () => {
     setLoading(true);
     try {
       const catParam = categoryFilter === 'All Categories' ? '' : categoryFilter;
-      const data = await api.getMedicines(search, catParam, statusFilter);
+      const data = await api.getMedicines(debouncedSearch, catParam, statusFilter);
       setMedicines(data || []);
       // If selected item is not in the new list, clear or keep selection
       if (selectedId) {
@@ -60,10 +57,17 @@ export function MedicineMaster() {
     }
   };
 
+  // Wait for the cashier to stop typing before asking the server
   useEffect(() => {
-    loadMedicines();
+    const timer = window.setTimeout(() => setDebouncedSearch(search.trim()), 250);
+    return () => window.clearTimeout(timer);
+  }, [search]);
+
+  useEffect(() => {
+    setSelectedId(null);
     setCurrentPage(1);
-  }, [search, categoryFilter, statusFilter]);
+    loadMedicines();
+  }, [debouncedSearch, categoryFilter, statusFilter]);
 
   // Selected Medicine
   const selectedMed = useMemo(() => {
@@ -81,13 +85,54 @@ export function MedicineMaster() {
     return Array.from(set).sort();
   }, [medicines]);
 
-  // Pagination calculations
-  const totalItems = medicines.length;
+  // Sorting + pagination
+  const sortedMedicines = useMemo(() => {
+    const copy = [...medicines];
+    const valueOf = (med: Medicine) => {
+      if (sortKey !== 'margin') return (med as any)[sortKey];
+      const sale = Number(med.sale_price || med.min_sale_rate || 0);
+      const pack = med.pack_size || 1;
+      const costPerUnit = Number(med.cost_price || med.min_purchase_rate || 0) / pack;
+      return sale > 0 && costPerUnit > 0 ? ((sale - costPerUnit) / sale) * 100 : 0;
+    };
+    copy.sort((a, b) => {
+      const av = valueOf(a);
+      const bv = valueOf(b);
+      const result =
+        typeof av === 'number' && typeof bv === 'number'
+          ? av - bv
+          : String(av ?? '').localeCompare(String(bv ?? ''));
+      return sortDir === 'asc' ? result : -result;
+    });
+    return copy;
+  }, [medicines, sortKey, sortDir]);
+
+  const handleSort = (key: string) => {
+    if (sortKey === key) {
+      setSortDir((direction) => (direction === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortKey(key);
+      setSortDir('asc');
+    }
+  };
+
+  const sortHeader = (label: string, key: string, className: string, width: string, title?: string) => (
+    <th
+      className={`${className} sortable-header`}
+      style={{ fontSize: '10.5px', letterSpacing: '0.4px', width, backgroundColor: 'var(--surface-subtle)', color: 'var(--text-secondary)', cursor: 'pointer' }}
+      onClick={() => handleSort(key)}
+      title={title || `Sort by ${label}`}
+    >
+      {label} <span className="sort-indicator">{sortKey === key ? (sortDir === 'asc' ? '▲' : '▼') : '↕'}</span>
+    </th>
+  );
+
+  const totalItems = sortedMedicines.length;
   const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
   const startIndex = (currentPage - 1) * pageSize;
   const paginatedMedicines = useMemo(() => {
-    return medicines.slice(startIndex, startIndex + pageSize);
-  }, [medicines, startIndex, pageSize]);
+    return sortedMedicines.slice(startIndex, startIndex + pageSize);
+  }, [sortedMedicines, startIndex, pageSize]);
 
   // Actions
   const handleAddItem = () => {
@@ -104,15 +149,40 @@ export function MedicineMaster() {
 
   const handleToggleStatus = async () => {
     if (!selectedMed) return;
+    const goingInactive = selectedMed.is_active !== 0;
+    const message = goingInactive
+      ? `Hide "${selectedMed.name}" from the POS?\n\nIt will stay in your records and old bills. You can bring it back any time with the Activate button.`
+      : `Show "${selectedMed.name}" in the POS again?`;
+    if (!window.confirm(message)) return;
     try {
       const res = await api.toggleMedicineStatus(selectedMed.id);
       const isNowActive = res && res.is_active === 1;
-      toast.success(
-        `Product "${selectedMed.name}" has been ${isNowActive ? 'activated' : 'deactivated'}.`
-      );
+      if (!isNowActive && statusFilter === '1') setStatusFilter('-1');
+      toast.success(`"${selectedMed.name}" is now ${isNowActive ? 'active' : 'inactive'}.`);
       await loadMedicines();
     } catch (err: any) {
-      toast.error('Failed to toggle item status: ' + err.message);
+      toast.error('Could not change item status: ' + err.message);
+    }
+  };
+
+  const handleOpenAdjust = () => {
+    if (!selectedMed) return;
+    setAdjustMedicine(selectedMed);
+    setIsAdjustOpen(true);
+  };
+
+  const handleDeleteItem = async () => {
+    if (!selectedMed) return;
+    if (!window.confirm(
+      `Permanently delete "${selectedMed.name}"?\n\nThis cannot be undone. Items with stock or old bills cannot be deleted — use Deactivate instead.`
+    )) return;
+    try {
+      await api.deleteMedicine(selectedMed.id);
+      toast.success('Item deleted.');
+      setSelectedId(null);
+      await loadMedicines();
+    } catch (err: any) {
+      toast.error(err.message || 'This item cannot be deleted.');
     }
   };
 
@@ -165,11 +235,12 @@ export function MedicineMaster() {
 
   return (
     <div
-      className="d-flex flex-column h-100 w-100"
+      ref={rootRef}
+      className="items-module d-flex flex-column h-100 w-100"
       style={{
         backgroundColor: 'var(--app-bg)',
         color: 'var(--text-primary)',
-        fontFamily: "'Roboto', sans-serif",
+        fontFamily: "'Inter', sans-serif",
       }}
       onKeyDown={handleKeyDown}
       tabIndex={0}
@@ -178,7 +249,7 @@ export function MedicineMaster() {
       {/* TOP FILTER & ACTION BAR matching Blueprint */}
       {/* ------------------------------------------------------------- */}
       <div
-        className="d-flex align-items-center gap-2 px-3 py-2 border-bottom flex-shrink-0"
+        className="items-toolbar d-flex align-items-center gap-2 px-3 py-2 border-bottom flex-shrink-0"
         style={{
           backgroundColor: 'var(--surface-bg)',
           minHeight: '44px',
@@ -332,6 +403,29 @@ export function MedicineMaster() {
               </>
             )}
           </button>
+
+          {/* Adjust Stock — deliberately separate from pricing */}
+          <button
+            type="button"
+            className="btn btn-sm secondaryBtn d-flex align-items-center gap-1 px-3"
+            disabled={!selectedMed}
+            onClick={handleOpenAdjust}
+            title="Add or remove stock for a specific batch — every change is recorded"
+            style={{ fontSize: '12px', fontWeight: 600, height: '30px', whiteSpace: 'nowrap' }}
+          >
+            <i className="bi bi-boxes"></i> Adjust Stock
+          </button>
+
+          <button
+            type="button"
+            className="btn btn-sm secondaryBtn d-flex align-items-center gap-1 px-3"
+            disabled={!selectedMed}
+            onClick={handleDeleteItem}
+            title="Permanently delete an unused item"
+            style={{ fontSize: '12px', fontWeight: 600, height: '30px', whiteSpace: 'nowrap', color: 'var(--btn-danger-text)' }}
+          >
+            <i className="bi bi-trash3"></i> Delete
+          </button>
         </div>
       </div>
 
@@ -355,60 +449,15 @@ export function MedicineMaster() {
             }}
           >
             <tr style={{ height: '32px' }}>
-              <th
-                className="ps-3 py-1 text-uppercase fw-bold"
-                style={{ fontSize: '10.5px', letterSpacing: '0.4px', width: '90px', backgroundColor: 'var(--surface-subtle)', color: 'var(--text-secondary)' }}
-              >
-                CODE
-              </th>
-              <th
-                className="ps-2 py-1 text-uppercase fw-bold"
-                style={{ fontSize: '10.5px', letterSpacing: '0.4px', minWidth: '220px', backgroundColor: 'var(--surface-subtle)', color: 'var(--text-secondary)' }}
-              >
-                ITEM NAME &amp; FORMULA
-              </th>
-              <th
-                className="ps-2 py-1 text-uppercase fw-bold"
-                style={{ fontSize: '10.5px', letterSpacing: '0.4px', width: '160px', backgroundColor: 'var(--surface-subtle)', color: 'var(--text-secondary)' }}
-              >
-                CATEGORY
-              </th>
-              <th
-                className="ps-2 py-1 text-uppercase fw-bold"
-                style={{ fontSize: '10.5px', letterSpacing: '0.4px', width: '130px', backgroundColor: 'var(--surface-subtle)', color: 'var(--text-secondary)' }}
-              >
-                PACK SIZE
-              </th>
-              <th
-                className="pe-3 py-1 text-uppercase fw-bold text-end"
-                style={{ fontSize: '10.5px', letterSpacing: '0.4px', width: '90px', backgroundColor: 'var(--surface-subtle)', color: 'var(--text-secondary)' }}
-              >
-                STOCK
-              </th>
-              <th
-                className="pe-3 py-1 text-uppercase fw-bold text-end"
-                style={{ fontSize: '10.5px', letterSpacing: '0.4px', width: '140px', backgroundColor: 'var(--surface-subtle)', color: 'var(--text-secondary)' }}
-              >
-                RETAIL PRICE (MRP)
-              </th>
-              <th
-                className="pe-3 py-1 text-uppercase fw-bold text-end"
-                style={{ fontSize: '10.5px', letterSpacing: '0.4px', width: '110px', backgroundColor: 'var(--surface-subtle)', color: 'var(--text-secondary)' }}
-              >
-                SALE PRICE
-              </th>
-              <th
-                className="pe-3 py-1 text-uppercase fw-bold text-end"
-                style={{ fontSize: '10.5px', letterSpacing: '0.4px', width: '100px', backgroundColor: 'var(--surface-subtle)', color: 'var(--text-secondary)' }}
-              >
-                COST (TP)
-              </th>
-              <th
-                className="pe-3 py-1 text-uppercase fw-bold text-end"
-                style={{ fontSize: '10.5px', letterSpacing: '0.4px', width: '90px', backgroundColor: 'var(--surface-subtle)', color: 'var(--text-secondary)' }}
-              >
-                MARGIN
-              </th>
+              {sortHeader('CODE', 'code', 'ps-3 py-1 text-uppercase fw-bold', '90px')}
+              {sortHeader('ITEM & FORMULA', 'name', 'ps-2 py-1 text-uppercase fw-bold', '220px')}
+              {sortHeader('CATEGORY', 'category', 'ps-2 py-1 text-uppercase fw-bold', '160px')}
+              {sortHeader('PACK', 'pack_size', 'ps-2 py-1 text-uppercase fw-bold', '120px', 'Number of base units in one pack')}
+              {sortHeader('STOCK (units)', 'total_stock', 'pe-3 py-1 text-uppercase fw-bold text-end', '110px')}
+              {sortHeader('MRP / pack', 'mrp', 'pe-3 py-1 text-uppercase fw-bold text-end', '130px', 'Printed price for one full pack')}
+              {sortHeader('SALE / unit', 'sale_price', 'pe-3 py-1 text-uppercase fw-bold text-end', '110px', 'Price charged for one tablet or capsule')}
+              {sortHeader('TP / pack', 'cost_price', 'pe-3 py-1 text-uppercase fw-bold text-end', '110px', 'Purchase cost for one full pack')}
+              {sortHeader('MARGIN / unit', 'margin', 'pe-3 py-1 text-uppercase fw-bold text-end', '120px', 'Profit per base unit')}
               <th
                 className="pe-3 py-1 text-uppercase fw-bold text-center"
                 style={{ fontSize: '10.5px', letterSpacing: '0.4px', width: '90px', backgroundColor: 'var(--surface-subtle)', color: 'var(--text-secondary)' }}
@@ -455,7 +504,12 @@ export function MedicineMaster() {
                 return (
                   <tr
                     key={med.id}
-                    onClick={() => setSelectedId(med.id)}
+                    tabIndex={0}
+                    onClick={() => {
+                      setSelectedId(med.id);
+                      rootRef.current?.focus();
+                    }}
+                    onFocus={() => setSelectedId(med.id)}
                     onDoubleClick={() => handleEditItem(med)}
                     className={isSelected ? 'pos-row-active' : ''}
                     style={{
@@ -528,7 +582,9 @@ export function MedicineMaster() {
                           : 'var(--text-primary)',
                       }}
                     >
-                      {med.total_stock ?? 0}
+                      <span title={`${med.total_stock ?? 0} base units in stock`}>
+                        {formatStockDisplay(med.total_stock ?? 0, med.pack_size || 1, true)}
+                      </span>
                     </td>
 
                     {/* Col 4: RETAIL PRICE (MRP) */}
@@ -630,8 +686,9 @@ export function MedicineMaster() {
             }}
             value={pageSize}
             onChange={(e) => {
-              setPageSize(parseInt(e.target.value));
+              setPageSize(parseInt(e.target.value, 10));
               setCurrentPage(1);
+              setSelectedId(null);
             }}
           >
             <option value={100}>100 per page</option>
@@ -643,7 +700,10 @@ export function MedicineMaster() {
             type="button"
             className="btn btn-sm secondaryBtn py-0 px-2"
             disabled={currentPage <= 1}
-            onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+            onClick={() => {
+              setCurrentPage((p) => Math.max(1, p - 1));
+              setSelectedId(null);
+            }}
             style={{ height: '26px', fontSize: '11px' }}
           >
             ◀ Previous
@@ -653,7 +713,10 @@ export function MedicineMaster() {
             type="button"
             className="btn btn-sm secondaryBtn py-0 px-2"
             disabled={currentPage >= totalPages}
-            onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+            onClick={() => {
+              setCurrentPage((p) => Math.min(totalPages, p + 1));
+              setSelectedId(null);
+            }}
             style={{ height: '26px', fontSize: '11px' }}
           >
             Next ▶
@@ -668,6 +731,13 @@ export function MedicineMaster() {
         onClose={() => setIsModalOpen(false)}
         onSave={handleSaveModal}
         existingGenerics={existingGenerics}
+      />
+
+      <StockAdjustModal
+        isOpen={isAdjustOpen}
+        medicine={adjustMedicine}
+        onClose={() => setIsAdjustOpen(false)}
+        onAdjusted={loadMedicines}
       />
     </div>
   );

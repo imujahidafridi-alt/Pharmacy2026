@@ -56,6 +56,11 @@ export const api = {
   updateMedicine: (id: number | string, data: Partial<Medicine>) => request(`/medicines/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   toggleMedicineStatus: (id: number | string) => request(`/medicines/${id}/toggle-status`, { method: 'POST' }),
   deleteMedicine: (id: number | string) => request(`/medicines/${id}`, { method: 'DELETE' }),
+  adjustStock: (id: number | string, batchId: number, delta: number, reason: string) =>
+    request(`/medicines/${id}/adjust-stock`, {
+      method: 'POST',
+      body: JSON.stringify({ batch_id: batchId, delta, reason }),
+    }),
 
   // Batches & Expiry
   getBatches: (medicineId: number | string = -1): Promise<Batch[]> => {

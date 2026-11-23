@@ -25,6 +25,9 @@ export interface Medicine {
   discount_pct?: number;
   total_stock?: number;
   current_stock?: number;
+  initial_stock?: number;
+  batch_number?: string;
+  expiry_date?: string;
   nearest_expiry?: string;
   min_sale_rate?: number;
   max_sale_rate?: number;

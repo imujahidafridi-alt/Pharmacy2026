@@ -1948,3 +1948,40 @@ kbd,
 [data-theme="dark"] .app-toast-warning { --toast-accent: #C9954A; }
 [data-bs-theme="dark"] .app-toast-info,
 [data-theme="dark"] .app-toast-info { --toast-accent: #6FA0C4; }
+
+/* ==========================================================================
+   ITEMS MODULE — readable tables, clear keyboard focus, responsive toolbar
+   ========================================================================== */
+
+.items-toolbar {
+  flex-wrap: wrap;
+}
+
+.items-toolbar > div {
+  flex-shrink: 1;
+}
+
+.sortable-header:hover {
+  color: var(--brand-teal) !important;
+}
+
+.sort-indicator {
+  font-size: 8px;
+  opacity: 0.55;
+  margin-left: 2px;
+}
+
+.items-module tbody tr:focus-visible {
+  outline: 2px solid var(--brand-teal) !important;
+  outline-offset: -2px;
+}
+
+@media (max-width: 1100px) {
+  .items-toolbar > div:first-child {
+    max-width: 38% !important;
+  }
+  .items-toolbar .ms-auto {
+    width: 100%;
+    justify-content: flex-end;
+  }
+}
