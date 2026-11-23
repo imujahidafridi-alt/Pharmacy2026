@@ -981,49 +981,50 @@ input[type="number"] {
 }
 
 [data-bs-theme="dark"], [data-theme="dark"] {
-  --app-bg: #061A18;
-  --surface-bg: #0F2B27;
-  --surface-subtle: #143A34;
-  --border-color: #205048;
-  --border-subtle: #174039;
-  --text-primary: #E8F6F1;
-  --text-secondary: #A0C2BB;
-  --text-muted: #6F9890;
+  /* Neutral midnight slate with a calm ice-blue accent — low glare, no green cast */
+  --app-bg: #101418;
+  --surface-bg: #171D24;
+  --surface-subtle: #1E252E;
+  --border-color: #2B3540;
+  --border-subtle: #222B34;
+  --text-primary: #D9E0E7;
+  --text-secondary: #99A6B3;
+  --text-muted: #6E7C89;
 
-  --brand-teal: #2DD4BF;
-  --brand-teal-hover: #5EEAD4;
-  --brand-teal-light: #10453D;
-  --brand-accent: #2DD4BF;
-  --brand-ink: #D8FFF7;
-  --nav-bg: linear-gradient(105deg, #03100E 0%, #0A302A 55%, #0E4B40 100%);
+  --brand-teal: #8FB8D8;
+  --brand-teal-hover: #AFD2EC;
+  --brand-teal-light: #1B2B39;
+  --brand-accent: #7FA9CC;
+  --brand-ink: #E6F0F7;
+  --nav-bg: linear-gradient(105deg, #131920 0%, #1A232D 55%, #222E3A 100%);
 
-  --active-row-bg: #125046;
-  --active-row-text: #8DF0D9;
-  --ghost-row-even: #0F2B27;
-  --ghost-row-odd: #0B2421;
-  --ghost-row-border: #173B35;
+  --active-row-bg: #21303E;
+  --active-row-text: #B9D6EC;
+  --ghost-row-even: #171D24;
+  --ghost-row-odd: #141A21;
+  --ghost-row-border: #232C35;
 
-  --card-bg: #0F2B27;
-  --input-bg: #0A2421;
-  --input-border: #205048;
-  --input-text: #E8F6F1;
-  --input-focus-border: #2DD4BF;
+  --card-bg: #171D24;
+  --input-bg: #121820;
+  --input-border: #2B3540;
+  --input-text: #D9E0E7;
+  --input-focus-border: #8FB8D8;
 
-  --btn-secondary-bg: #0F2B27;
-  --btn-secondary-text: #D4ECE5;
-  --btn-secondary-border: #205048;
-  --btn-secondary-hover-bg: #174039;
-  --btn-secondary-hover-border: #2DD4BF;
+  --btn-secondary-bg: #171D24;
+  --btn-secondary-text: #C7D2DC;
+  --btn-secondary-border: #2B3540;
+  --btn-secondary-hover-bg: #222C36;
+  --btn-secondary-hover-border: #8FB8D8;
 
-  --badge-bg: #174039;
-  --badge-text: #BFE3D9;
-  --badge-border: #205048;
+  --badge-bg: #222C36;
+  --badge-text: #B6C4D1;
+  --badge-border: #2B3540;
 
-  --shadow-sm: 0 2px 10px rgba(0, 0, 0, 0.3);
-  --shadow-md: 0 16px 40px rgba(0, 0, 0, 0.45);
-  --scrollbar-track: #061A18;
-  --scrollbar-thumb: #205048;
-  --scrollbar-thumb-hover: #2DD4BF;
+  --shadow-sm: 0 2px 10px rgba(0, 0, 0, 0.32);
+  --shadow-md: 0 16px 40px rgba(0, 0, 0, 0.5);
+  --scrollbar-track: #101418;
+  --scrollbar-thumb: #2B3540;
+  --scrollbar-thumb-hover: #8FB8D8;
 }
 
 /* Typography — modern geometric sans + monospaced numbers */
@@ -1778,4 +1779,68 @@ kbd,
   .app-menu-brand-text {
     display: none !important;
   }
+}
+
+/* ==========================================================================
+   DARK THEME — final neutral overrides (loaded after every legacy rule)
+   ========================================================================== */
+
+[data-bs-theme="dark"] #primaryCheckoutBtn,
+[data-theme="dark"] #primaryCheckoutBtn,
+[data-bs-theme="dark"] .btn-primary,
+[data-theme="dark"] .btn-primary {
+  background: linear-gradient(100deg, #4E7FA3, #6FA0C4) !important;
+  border: none !important;
+  color: #0E1A24 !important;
+  box-shadow: 0 6px 18px rgba(111, 160, 196, 0.22) !important;
+}
+
+[data-bs-theme="dark"] #primaryCheckoutBtn:hover,
+[data-theme="dark"] #primaryCheckoutBtn:hover {
+  background: linear-gradient(100deg, #5E92B7, #82B1D1) !important;
+  box-shadow: 0 10px 24px rgba(111, 160, 196, 0.3) !important;
+}
+
+[data-bs-theme="dark"] #totalDisplayCard,
+[data-theme="dark"] #totalDisplayCard {
+  background: linear-gradient(155deg, var(--surface-bg) 55%, #1B2B39 140%) !important;
+  border-top-color: #7FA9CC !important;
+}
+
+[data-bs-theme="dark"] .table tbody tr:hover,
+[data-theme="dark"] .table tbody tr:hover {
+  background-color: rgba(143, 184, 216, 0.07) !important;
+}
+
+[data-bs-theme="dark"] .form-control:focus,
+[data-theme="dark"] .form-control:focus,
+[data-bs-theme="dark"] .form-select:focus,
+[data-theme="dark"] .form-select:focus {
+  box-shadow: 0 0 0 2px rgba(143, 184, 216, 0.22) !important;
+}
+
+[data-bs-theme="dark"] .input-group:focus-within,
+[data-theme="dark"] .input-group:focus-within {
+  box-shadow: 0 0 0 3px rgba(143, 184, 216, 0.16) !important;
+}
+
+[data-bs-theme="dark"] #navBar.app-menu-bar::before,
+[data-theme="dark"] #navBar.app-menu-bar::before {
+  box-shadow: 0 2px 8px rgba(143, 184, 216, 0.3) !important;
+}
+
+[data-bs-theme="dark"] .payment-cash-active,
+[data-theme="dark"] .payment-cash-active {
+  background: linear-gradient(100deg, #3F7C72, #5A9B8F) !important;
+  box-shadow: 0 4px 12px rgba(63, 124, 114, 0.22) !important;
+}
+
+[data-bs-theme="dark"] .payment-online-active,
+[data-theme="dark"] .payment-online-active {
+  background: linear-gradient(100deg, #3B6EA5, #4F86C0) !important;
+}
+
+[data-bs-theme="dark"] .payment-credit-active,
+[data-theme="dark"] .payment-credit-active {
+  background: linear-gradient(100deg, #9A6428, #BC8238) !important;
 }
