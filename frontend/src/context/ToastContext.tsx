@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useCallback, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useCallback, useEffect, useRef, ReactNode } from 'react';
 
 export type ToastType = 'success' | 'danger' | 'error' | 'warning' | 'info';
 
@@ -6,6 +6,7 @@ export interface ToastItem {
   id: string;
   message: string;
   type: ToastType;
+  duration: number;
 }
 
 export interface ToastContextType {
@@ -18,72 +19,90 @@ export interface ToastContextType {
 
 const ToastContext = createContext<ToastContextType | null>(null);
 
+const MAX_VISIBLE = 4;
+
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<ToastItem[]>([]);
-
-  const showToast = useCallback((message: string, type: ToastType = 'success', duration = 3500) => {
-    const id = Date.now() + Math.random().toString(36).substring(2, 9);
-    setToasts((prev) => [...prev, { id, message, type }]);
-
-    if (duration > 0) {
-      setTimeout(() => {
-        setToasts((prev) => prev.filter((t) => t.id !== id));
-      }, duration);
-    }
-  }, []);
+  const timers = useRef<Set<number>>(new Set());
 
   const removeToast = useCallback((id: string) => {
-    setToasts((prev) => prev.filter((t) => t.id !== id));
+    setToasts((prev) => prev.filter((toast) => toast.id !== id));
+  }, []);
+
+  const showToast = useCallback((message: string, type: ToastType = 'success', duration?: number) => {
+    const resolvedDuration =
+      duration ?? (type === 'danger' || type === 'error' || type === 'warning' ? 4000 : 2400);
+    const id = `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+
+    setToasts((prev) => {
+      // Replace an identical message instead of stacking duplicates (e.g. repeated scans)
+      const withoutDuplicate = prev.filter((toast) => toast.message !== message || toast.type !== type);
+      return [...withoutDuplicate, { id, message, type, duration: resolvedDuration }].slice(-MAX_VISIBLE);
+    });
+
+    if (resolvedDuration > 0) {
+      const timer = window.setTimeout(() => {
+        removeToast(id);
+        timers.current.delete(timer);
+      }, resolvedDuration);
+      timers.current.add(timer);
+    }
+  }, [removeToast]);
+
+  useEffect(() => {
+    const active = timers.current;
+    return () => {
+      active.forEach((timer) => window.clearTimeout(timer));
+      active.clear();
+    };
   }, []);
 
   const success = useCallback((msg: string, dur?: number) => showToast(msg, 'success', dur), [showToast]);
-  const error = useCallback((msg: string, dur?: number) => showToast(msg, 'danger', dur), [showToast]);
+  const error = useCallback((msg: string, dur?: number) => showToast(msg, 'error', dur), [showToast]);
   const warning = useCallback((msg: string, dur?: number) => showToast(msg, 'warning', dur), [showToast]);
   const info = useCallback((msg: string, dur?: number) => showToast(msg, 'info', dur), [showToast]);
 
   return (
     <ToastContext.Provider value={{ showToast, success, error, warning, info }}>
       {children}
-      <div className="toast-container position-fixed top-0 end-0 p-3 no-print" style={{ zIndex: 1100, marginTop: '48px' }}>
-        {toasts.map((t) => {
-          const bgClass =
-            t.type === 'success'
-              ? 'text-bg-success'
-              : t.type === 'danger' || t.type === 'error'
-              ? 'text-bg-danger'
-              : t.type === 'warning'
-              ? 'text-bg-warning'
-              : 'text-bg-primary';
-
+      <div
+        className="app-toast-stack no-print"
+        aria-live="polite"
+        aria-relevant="additions"
+      >
+        {toasts.map((toast) => {
+          const isError = toast.type === 'danger' || toast.type === 'error';
           const iconClass =
-            t.type === 'success'
+            toast.type === 'success'
               ? 'bi-check-circle-fill'
-              : t.type === 'danger' || t.type === 'error'
+              : isError
               ? 'bi-x-circle-fill'
-              : t.type === 'warning'
+              : toast.type === 'warning'
               ? 'bi-exclamation-triangle-fill'
               : 'bi-info-circle-fill';
 
           return (
             <div
-              key={t.id}
-              className={`toast show align-items-center ${bgClass} border-0 shadow mb-2`}
-              role="alert"
-              aria-live="assertive"
-              aria-atomic="true"
+              key={toast.id}
+              className={`app-toast app-toast-${toast.type}`}
+              role={isError ? 'alert' : 'status'}
             >
-              <div className="d-flex">
-                <div className="toast-body d-flex align-items-center gap-2 py-2 px-3 fw-semibold">
-                  <i className={`bi ${iconClass} fs-6`}></i>
-                  <span>{t.message}</span>
-                </div>
-                <button
-                  type="button"
-                  className="btn-close btn-close-white me-2 m-auto"
-                  onClick={() => removeToast(t.id)}
-                  aria-label="Close"
-                ></button>
-              </div>
+              <i className={`bi ${iconClass} app-toast-icon`}></i>
+              <span className="app-toast-message">{toast.message}</span>
+              <button
+                type="button"
+                className="app-toast-close"
+                onClick={() => removeToast(toast.id)}
+                aria-label="Dismiss notification"
+              >
+                <i className="bi bi-x"></i>
+              </button>
+              {toast.duration > 0 && (
+                <span
+                  className="app-toast-progress"
+                  style={{ animationDuration: `${toast.duration}ms` }}
+                ></span>
+              )}
             </div>
           );
         })}
