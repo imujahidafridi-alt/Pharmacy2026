@@ -47,7 +47,7 @@ public:
     json createInvoice(const json& invoiceData);
     json getInvoices(int limit = 50, int offset = 0, const std::string& date = "");
     json getInvoiceById(int id);
-    json returnInvoice(int invoiceId, const std::string& reason);
+    json returnInvoice(int invoiceId, const std::string& reason, const std::string& refundMode = "CASH");
 
     // Parked / Suspended Bills
     json parkInvoice(const json& cartData);
@@ -78,6 +78,12 @@ public:
     json getDaybook(const std::string& date = "");
     json addDaybookEntry(const std::string& entryType, double amount, const std::string& direction, const std::string& notes);
 
+    json openCashDrawer(double openingFloat, const std::string& notes);
+    json closeCashDrawer(double countedAmount, const std::string& notes);
+    json getCashDrawerStatus();
+    json getCashDrawerHistory(int limit = 20);
+    json addCashDrawerMovement(const std::string& entryType, double amount, const std::string& direction, const std::string& notes);
+
     // Reports & Dashboard KPIs
     json getDashboardStats();
 
@@ -97,4 +103,7 @@ private:
     sqlite3* db = nullptr;
     std::mutex dbMutex;
     bool createTables();
+    json getInvoiceByIdInternal(int id); // called with dbMutex already held
+    int currentSessionId();              // called with dbMutex already held
+    json getCashDrawerStatusInternal();  // called with dbMutex already held
 };

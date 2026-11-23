@@ -75,7 +75,8 @@ export const api = {
     return request<Invoice[]>(`/invoices?${params.toString()}`);
   },
   getInvoice: (id: number | string): Promise<Invoice> => request<Invoice>(`/invoices/${id}`),
-  returnInvoice: (invoiceId: number | string, reason: string) => request('/pos/return', { method: 'POST', body: JSON.stringify({ invoice_id: invoiceId, reason }) }),
+  returnInvoice: (invoiceId: number | string, reason: string, refundMode: 'CASH' | 'KHATA' = 'CASH') =>
+    request('/pos/return', { method: 'POST', body: JSON.stringify({ invoice_id: invoiceId, reason, refund_mode: refundMode }) }),
 
   // Parked Bills
   parkInvoice: (cartData: any) => request('/pos/park', { method: 'POST', body: JSON.stringify(cartData) }),
@@ -114,6 +115,19 @@ export const api = {
   getDaybook: (date = '') => request(`/daybook${date ? `?date=${date}` : ''}`),
   addDaybookEntry: (entryType: string, amount: number | string, direction: 'IN' | 'OUT', notes = '') =>
     request('/daybook', {
+      method: 'POST',
+      body: JSON.stringify({ entry_type: entryType, amount: Number(amount), direction, notes }),
+    }),
+
+  // Cash Drawer
+  getCashDrawerStatus: () => request('/cash-drawer/status'),
+  getCashDrawerHistory: (limit = 20) => request(`/cash-drawer/history?limit=${limit}`),
+  openCashDrawer: (openingFloat: number | string, notes = '') =>
+    request('/cash-drawer/open', { method: 'POST', body: JSON.stringify({ opening_float: Number(openingFloat), notes }) }),
+  closeCashDrawer: (countedAmount: number | string, notes = '') =>
+    request('/cash-drawer/close', { method: 'POST', body: JSON.stringify({ counted_amount: Number(countedAmount), notes }) }),
+  addCashDrawerMovement: (entryType: string, amount: number | string, direction: 'IN' | 'OUT', notes = '') =>
+    request('/cash-drawer/movement', {
       method: 'POST',
       body: JSON.stringify({ entry_type: entryType, amount: Number(amount), direction, notes }),
     }),

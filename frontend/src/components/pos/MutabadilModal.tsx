@@ -168,7 +168,7 @@ export function MutabadilModal({
                         <td>{med.category || '-'}</td>
                         <td className="text-center">
                           <span className="badge border" style={{ backgroundColor: 'var(--badge-bg)', color: 'var(--badge-text)', borderColor: 'var(--badge-border)' }}>
-                            {med.pack_size > 1 ? `Pack of ${med.pack_size}` : '1 unit'}
+                            {(med.pack_size || 1) > 1 ? `Pack of ${med.pack_size}` : '1 unit'}
                           </span>
                         </td>
                         <td className="text-end fw-semibold">

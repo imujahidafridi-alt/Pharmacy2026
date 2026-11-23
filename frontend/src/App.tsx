@@ -7,6 +7,7 @@ import { MedicineMaster } from './components/inventory/MedicineMaster';
 import { ExpiryWatchlist } from './components/inventory/ExpiryWatchlist';
 import { PurchaseEntry } from './components/purchases/PurchaseEntry';
 import { DaybookReconciliation } from './components/reports/DaybookReconciliation';
+import { CashDrawerView } from './components/reports/CashDrawerView';
 import { DashboardOverview } from './components/reports/DashboardOverview';
 import { SettingsView } from './components/reports/SettingsView';
 import { ReturnBillModal } from './components/pos/ReturnBillModal';
@@ -119,6 +120,7 @@ export function App() {
     { id: 'customers', label: 'Customers' },
     { id: 'suppliers', label: 'Suppliers' },
     { id: 'returns', label: 'Returns' },
+    { id: 'drawer', label: 'Cash Drawer' },
     { id: 'reports', label: 'Reports' },
     { id: 'settings', label: 'Settings' },
   ];
@@ -294,6 +296,11 @@ export function App() {
         {activeTab === 'suppliers' && (
           <div className="h-100 p-2 overflow-y-auto">
             <SupplierKhataView />
+          </div>
+        )}
+        {activeTab === 'drawer' && (
+          <div className="h-100 p-2 overflow-hidden">
+            <CashDrawerView />
           </div>
         )}
         {activeTab === 'reports' && (

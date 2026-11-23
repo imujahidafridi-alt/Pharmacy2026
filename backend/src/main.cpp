@@ -255,7 +255,8 @@ int main(int argc, char* argv[]) {
             json body = json::parse(req.body);
             int invId = body.value("invoice_id", 0);
             std::string reason = body.value("reason", "Customer Return");
-            json result = db.returnInvoice(invId, reason);
+            std::string refundMode = body.value("refund_mode", "CASH");
+            json result = db.returnInvoice(invId, reason, refundMode);
             if (result.contains("error")) {
                 res.status = 400;
                 res.set_content(result.dump(), "application/json");
@@ -488,6 +489,58 @@ int main(int argc, char* argv[]) {
             std::string dir = body.value("direction", "OUT");
             std::string notes = body.value("notes", "");
             json result = db.addDaybookEntry(type, amount, dir, notes);
+            res.set_content(result.dump(), "application/json");
+        } catch (const std::exception& e) {
+            res.status = 400;
+            res.set_content(json({{"error", e.what()}}).dump(), "application/json");
+        }
+    });
+
+    // --- Cash Drawer ---
+    svr.Get("/api/cash-drawer/status", [&db](const httplib::Request&, httplib::Response& res) {
+        json result = db.getCashDrawerStatus();
+        res.set_content(result.dump(), "application/json");
+    });
+
+    svr.Get("/api/cash-drawer/history", [&db](const httplib::Request& req, httplib::Response& res) {
+        int limit = req.has_param("limit") ? std::stoi(req.get_param_value("limit")) : 20;
+        json result = db.getCashDrawerHistory(limit);
+        res.set_content(json({{"sessions", result}}).dump(), "application/json");
+    });
+
+    svr.Post("/api/cash-drawer/open", [&db](const httplib::Request& req, httplib::Response& res) {
+        try {
+            json body = json::parse(req.body);
+            json result = db.openCashDrawer(body.value("opening_float", 0.0), body.value("notes", ""));
+            if (result.contains("error")) res.status = 400;
+            res.set_content(result.dump(), "application/json");
+        } catch (const std::exception& e) {
+            res.status = 400;
+            res.set_content(json({{"error", e.what()}}).dump(), "application/json");
+        }
+    });
+
+    svr.Post("/api/cash-drawer/close", [&db](const httplib::Request& req, httplib::Response& res) {
+        try {
+            json body = json::parse(req.body);
+            json result = db.closeCashDrawer(body.value("counted_amount", 0.0), body.value("notes", ""));
+            if (result.contains("error")) res.status = 400;
+            res.set_content(result.dump(), "application/json");
+        } catch (const std::exception& e) {
+            res.status = 400;
+            res.set_content(json({{"error", e.what()}}).dump(), "application/json");
+        }
+    });
+
+    svr.Post("/api/cash-drawer/movement", [&db](const httplib::Request& req, httplib::Response& res) {
+        try {
+            json body = json::parse(req.body);
+            json result = db.addCashDrawerMovement(
+                body.value("entry_type", "PETTY_CASH"),
+                body.value("amount", 0.0),
+                body.value("direction", "OUT"),
+                body.value("notes", ""));
+            if (result.contains("error")) res.status = 400;
             res.set_content(result.dump(), "application/json");
         } catch (const std::exception& e) {
             res.status = 400;

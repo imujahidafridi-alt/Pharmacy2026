@@ -38,6 +38,20 @@ static void normalizePriceBasis(Database& db) {
     db.execute("INSERT OR REPLACE INTO settings (key, value) VALUES ('price_basis_unit_sale', '1');");
 }
 
+// Escape a string for safe inclusion as a SQL single-quoted literal.
+// Prepared statements are preferred; this guards the remaining legacy queries.
+static std::string sqlQuote(const std::string& value) {
+    std::string out;
+    out.reserve(value.size() + 2);
+    out.push_back('\'');
+    for (char c : value) {
+        if (c == '\'') out += "''";
+        else out.push_back(c);
+    }
+    out.push_back('\'');
+    return out;
+}
+
 bool Database::initialize(const std::string& dbPath) {
     std::lock_guard<std::mutex> lock(dbMutex);
     int rc = sqlite3_open(dbPath.c_str(), &db);
@@ -303,6 +317,20 @@ bool Database::createTables() {
             amount REAL NOT NULL,
             direction TEXT NOT NULL,
             reference_id INTEGER,
+            session_id INTEGER,
+            notes TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE TABLE IF NOT EXISTS cash_drawer_sessions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            opened_at TEXT NOT NULL,
+            closed_at TEXT,
+            opening_float REAL NOT NULL,
+            expected_closing REAL,
+            counted_closing REAL,
+            variance REAL,
+            status TEXT DEFAULT 'OPEN',
             notes TEXT,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP
         );
@@ -335,6 +363,7 @@ bool Database::createTables() {
     execute("ALTER TABLE medicines ADD COLUMN is_active INTEGER DEFAULT 1;");
     execute("ALTER TABLE medicines ADD COLUMN discount_rule INTEGER DEFAULT 0;");
     execute("ALTER TABLE medicines ADD COLUMN discount_pct REAL DEFAULT 0.0;");
+    execute("ALTER TABLE daybook ADD COLUMN session_id INTEGER;");
 
     // Drop legacy invoice metadata columns (doctor name / invoice notes)
     auto hasColumn = [&](const std::string& table, const std::string& column) -> bool {
@@ -376,14 +405,14 @@ json Database::getMedicines(const std::string& search, const std::string& catego
         conditions.push_back("m.is_active = " + status);
     }
     if (!search.empty()) {
-        std::string s = search;
-        for (auto& c : s) if (c == '\'') c = ' ';
-        conditions.push_back("(m.name LIKE '%" + s + "%' OR m.generic_name LIKE '%" + s + "%' OR m.barcode LIKE '%" + s + "%' OR m.code LIKE '%" + s + "%' OR m.brand LIKE '%" + s + "%' OR m.manufacturer LIKE '%" + s + "%' OR m.rack_location LIKE '%" + s + "%')");
+        std::string pattern = sqlQuote("%" + search + "%");
+        conditions.push_back("(m.name LIKE " + pattern + " OR m.generic_name LIKE " + pattern +
+                             " OR m.barcode LIKE " + pattern + " OR m.code LIKE " + pattern +
+                             " OR m.brand LIKE " + pattern + " OR m.manufacturer LIKE " + pattern +
+                             " OR m.rack_location LIKE " + pattern + ")");
     }
     if (!category.empty() && category != "All Categories") {
-        std::string cat = category;
-        for (auto& c : cat) if (c == '\'') c = ' ';
-        conditions.push_back("m.category = '" + cat + "'");
+        conditions.push_back("m.category = " + sqlQuote(category));
     }
 
     if (!conditions.empty()) {
@@ -916,16 +945,20 @@ json Database::createInvoice(const json& inv) {
         }
     }
 
-    // 4. Daybook Entry for Cash Received
-    if (paidAmount > 0.001) {
+    // 4. Daybook entry — only physical cash touches the drawer. Online/Card do not.
+    // A Credit sale with a partial cash payment does place that cash in the drawer.
+    bool physicalCash = (paymentMode == "CASH" || paymentMode == "CREDIT");
+    if (paidAmount > 0.001 && physicalCash) {
         std::string daybookNote = "Sale Cash: " + invoiceNum;
         if (customerId > 0) daybookNote += " (" + customerName + ")";
-        const char* dbkSql = "INSERT INTO daybook (date, entry_type, amount, direction, reference_id, notes) VALUES (?, 'CASH_SALE', ?, 'IN', ?, ?);";
+        const char* dbkSql = "INSERT INTO daybook (date, entry_type, amount, direction, reference_id, session_id, notes) VALUES (?, 'CASH_SALE', ?, 'IN', ?, ?, ?);";
         if (sqlite3_prepare_v2(db, dbkSql, -1, &stmt, nullptr) == SQLITE_OK) {
             sqlite3_bind_text(stmt, 1, dateStr.c_str(), -1, SQLITE_TRANSIENT);
             sqlite3_bind_double(stmt, 2, paidAmount);
             sqlite3_bind_int64(stmt, 3, invoiceId);
-            sqlite3_bind_text(stmt, 4, daybookNote.c_str(), -1, SQLITE_TRANSIENT);
+            int sid = currentSessionId();
+            if (sid > 0) sqlite3_bind_int(stmt, 4, sid); else sqlite3_bind_null(stmt, 4);
+            sqlite3_bind_text(stmt, 5, daybookNote.c_str(), -1, SQLITE_TRANSIENT);
             sqlite3_step(stmt);
             sqlite3_finalize(stmt);
         }
@@ -933,14 +966,14 @@ json Database::createInvoice(const json& inv) {
 
     commit();
 
-    return getInvoiceById(static_cast<int>(invoiceId));
+    return getInvoiceByIdInternal(static_cast<int>(invoiceId));
 }
 
 json Database::getInvoices(int limit, int offset, const std::string& date) {
     std::lock_guard<std::mutex> lock(dbMutex);
     std::string sql = "SELECT * FROM invoices";
     if (!date.empty()) {
-        sql += " WHERE date LIKE '" + date + "%'";
+        sql += " WHERE date LIKE " + sqlQuote(date + "%");
     }
     sql += " ORDER BY id DESC LIMIT " + std::to_string(limit) + " OFFSET " + std::to_string(offset) + ";";
     
@@ -953,9 +986,12 @@ json Database::getInvoices(int limit, int offset, const std::string& date) {
 }
 
 json Database::getInvoiceById(int id) {
-    // Note: Called internally when lock is held or externally.
-    // If external, dbMutex needs care. Let's make internal query helper without lock if already locked, or acquire.
-    // Since this is C++, let's execute SQL directly.
+    std::lock_guard<std::mutex> lock(dbMutex);
+    return getInvoiceByIdInternal(id);
+}
+
+json Database::getInvoiceByIdInternal(int id) {
+    // Caller must hold dbMutex. Used by createInvoice while its transaction is open.
     json res = query("SELECT * FROM invoices WHERE id = " + std::to_string(id));
     if (res.empty()) return nullptr;
     json inv = res[0];
@@ -963,7 +999,7 @@ json Database::getInvoiceById(int id) {
     return inv;
 }
 
-json Database::returnInvoice(int invoiceId, const std::string& reason) {
+json Database::returnInvoice(int invoiceId, const std::string& reason, const std::string& refundMode) {
     std::lock_guard<std::mutex> lock(dbMutex);
     beginTransaction();
 
@@ -1005,17 +1041,20 @@ json Database::returnInvoice(int invoiceId, const std::string& reason) {
             double newBal = curBal - unpaidAmount;
             execute("UPDATE customers SET current_balance = " + std::to_string(newBal) + " WHERE id = " + std::to_string(customerId));
 
+            std::string returnNote = "Return of Invoice #" + inv["invoice_number"].get<std::string>();
             execute("INSERT INTO customer_ledger (customer_id, date, transaction_type, reference_id, debit, credit, balance, notes) VALUES (" +
-                    std::to_string(customerId) + ", '" + dateStr + "', 'RETURN', " + std::to_string(invoiceId) + ", 0.0, " +
-                    std::to_string(unpaidAmount) + ", " + std::to_string(newBal) + ", 'Return of Invoice #" + inv["invoice_number"].get<std::string>() + "');");
+                    std::to_string(customerId) + ", " + sqlQuote(dateStr) + ", 'RETURN', " + std::to_string(invoiceId) + ", 0.0, " +
+                    std::to_string(unpaidAmount) + ", " + std::to_string(newBal) + ", " + sqlQuote(returnNote) + ");");
         }
     }
 
-    // 3. Daybook Cash Outflow if paid amount refunded
-    if (paidAmount > 0.001) {
-        execute("INSERT INTO daybook (date, entry_type, amount, direction, reference_id, notes) VALUES ('" +
-                dateStr + "', 'EXPENSE', " + std::to_string(paidAmount) + ", 'OUT', " + std::to_string(invoiceId) +
-                ", 'Refund for Returned Invoice #" + inv["invoice_number"].get<std::string>() + ": " + reason + "');");
+    // 3. Daybook cash outflow only when the refund actually leaves the drawer
+    if (paidAmount > 0.001 && refundMode == "CASH") {
+        std::string refundNote = "Refund for Returned Invoice #" + inv["invoice_number"].get<std::string>() + ": " + reason;
+        int sid = currentSessionId();
+        execute("INSERT INTO daybook (date, entry_type, amount, direction, reference_id, session_id, notes) VALUES (" +
+                sqlQuote(dateStr) + ", 'SALE_RETURN', " + std::to_string(paidAmount) + ", 'OUT', " + std::to_string(invoiceId) +
+                ", " + (sid > 0 ? std::to_string(sid) : "NULL") + ", " + sqlQuote(refundNote) + ");");
     }
 
     // 4. Update Invoice status
@@ -1062,9 +1101,8 @@ json Database::getCustomers(const std::string& search) {
     std::lock_guard<std::mutex> lock(dbMutex);
     std::string sql = "SELECT * FROM customers";
     if (!search.empty()) {
-        std::string s = search;
-        for (auto& c : s) if (c == '\'') c = ' ';
-        sql += " WHERE name LIKE '%" + s + "%' OR phone LIKE '%" + s + "%'";
+        std::string pattern = sqlQuote("%" + search + "%");
+        sql += " WHERE name LIKE " + pattern + " OR phone LIKE " + pattern;
     }
     sql += " ORDER BY name ASC;";
     return query(sql);
@@ -1169,8 +1207,10 @@ json Database::recordCustomerPayment(int customerId, double amount, const std::s
     // 3. Daybook Cash Entry
     if (paymentMode == "CASH") {
         std::string dbkNote = "Khata Collection: " + custName + (notes.empty() ? "" : " (" + notes + ")");
-        execute("INSERT INTO daybook (date, entry_type, amount, direction, notes) VALUES ('" +
-                dateStr + "', 'KHATA_COLLECTION', " + std::to_string(amount) + ", 'IN', '" + dbkNote + "');");
+        int sid = currentSessionId();
+        execute("INSERT INTO daybook (date, entry_type, amount, direction, session_id, notes) VALUES (" +
+                sqlQuote(dateStr) + ", 'KHATA_COLLECTION', " + std::to_string(amount) + ", 'IN', " +
+                (sid > 0 ? std::to_string(sid) : "NULL") + ", " + sqlQuote(dbkNote) + ");");
     }
 
     commit();
@@ -1183,9 +1223,8 @@ json Database::getSuppliers(const std::string& search) {
     std::lock_guard<std::mutex> lock(dbMutex);
     std::string sql = "SELECT * FROM suppliers";
     if (!search.empty()) {
-        std::string s = search;
-        for (auto& c : s) if (c == '\'') c = ' ';
-        sql += " WHERE name LIKE '%" + s + "%' OR contact_person LIKE '%" + s + "%' OR phone LIKE '%" + s + "%'";
+        std::string pattern = sqlQuote("%" + search + "%");
+        sql += " WHERE name LIKE " + pattern + " OR contact_person LIKE " + pattern + " OR phone LIKE " + pattern;
     }
     sql += " ORDER BY name ASC;";
     return query(sql);
@@ -1290,8 +1329,10 @@ json Database::recordSupplierPayment(int supplierId, double amount, const std::s
     // 3. Daybook Cash Outflow Entry
     if (paymentMode == "CASH") {
         std::string dbkNote = "Supplier Payment: " + suppName + (notes.empty() ? "" : " (" + notes + ")");
-        execute("INSERT INTO daybook (date, entry_type, amount, direction, notes) VALUES ('" +
-                dateStr + "', 'SUPPLIER_PAYMENT', " + std::to_string(amount) + ", 'OUT', '" + dbkNote + "');");
+        int sid = currentSessionId();
+        execute("INSERT INTO daybook (date, entry_type, amount, direction, session_id, notes) VALUES (" +
+                sqlQuote(dateStr) + ", 'SUPPLIER_PAYMENT', " + std::to_string(amount) + ", 'OUT', " +
+                (sid > 0 ? std::to_string(sid) : "NULL") + ", " + sqlQuote(dbkNote) + ");");
     }
 
     commit();
@@ -1313,6 +1354,7 @@ json Database::createPurchase(const json& p) {
     double total = p.value("total_amount", 0.0);
     double paid = p.value("paid_amount", 0.0);
     std::string notes = p.value("notes", "");
+    std::string payMode = p.value("payment_mode", "CASH");
     std::string status = (paid >= total) ? "PAID" : ((paid > 0) ? "PARTIAL" : "UNPAID");
 
     // 1. Insert Purchase
@@ -1422,12 +1464,17 @@ json Database::createPurchase(const json& p) {
         // If paid immediately, record debit
         if (paid > 0.001) {
             execute("INSERT INTO supplier_ledger (supplier_id, date, transaction_type, reference_id, debit, credit, balance, notes) VALUES (" +
-                    std::to_string(supplierId) + ", '" + dt + "', 'PAYMENT', " + std::to_string(purchaseId) + ", " +
-                    std::to_string(paid) + ", 0.0, " + std::to_string(newBal) + ", 'Cash Paid on Purchase #" + invNum + "');");
+                    std::to_string(supplierId) + ", " + sqlQuote(dt) + ", 'PAYMENT', " + std::to_string(purchaseId) + ", " +
+                    std::to_string(paid) + ", 0.0, " + std::to_string(newBal) + ", " +
+                    sqlQuote("Cash Paid on Purchase #" + invNum) + ");");
 
-            execute("INSERT INTO daybook (date, entry_type, amount, direction, reference_id, notes) VALUES ('" +
-                    dt + "', 'SUPPLIER_PAYMENT', " + std::to_string(paid) + ", 'OUT', " + std::to_string(purchaseId) +
-                    ", 'Purchase Cash Payment to " + suppName + "');");
+            if (payMode == "CASH") {
+                int sid = currentSessionId();
+                execute("INSERT INTO daybook (date, entry_type, amount, direction, reference_id, session_id, notes) VALUES (" +
+                        sqlQuote(dt) + ", 'PURCHASE_PAYMENT', " + std::to_string(paid) + ", 'OUT', " + std::to_string(purchaseId) +
+                        ", " + (sid > 0 ? std::to_string(sid) : "NULL") + ", " +
+                        sqlQuote("Purchase Cash Payment to " + suppName) + ");");
+            }
         }
     }
 
@@ -1463,7 +1510,7 @@ json Database::getPurchases(int limit) {
 json Database::getDaybook(const std::string& date) {
     std::lock_guard<std::mutex> lock(dbMutex);
     std::string targetDate = date.empty() ? Utils::getCurrentDate() : date;
-    std::string sql = "SELECT * FROM daybook WHERE date LIKE '" + targetDate + "%' ORDER BY id ASC;";
+    std::string sql = "SELECT * FROM daybook WHERE date LIKE " + sqlQuote(targetDate + "%") + " ORDER BY id ASC;";
     json entries = query(sql);
 
     double totalIn = 0.0;
@@ -1484,22 +1531,156 @@ json Database::getDaybook(const std::string& date) {
     };
 }
 
+int Database::currentSessionId() {
+    // Caller holds dbMutex
+    json res = query("SELECT id FROM cash_drawer_sessions WHERE status = 'OPEN' ORDER BY id DESC LIMIT 1;");
+    if (res.empty()) return 0;
+    return res[0]["id"].get<int>();
+}
+
 json Database::addDaybookEntry(const std::string& entryType, double amount, const std::string& direction, const std::string& notes) {
     std::lock_guard<std::mutex> lock(dbMutex);
+    if (amount <= 0 || (direction != "IN" && direction != "OUT")) {
+        return {{"error", "A positive amount and a valid direction are required"}};
+    }
     std::string dt = Utils::getCurrentDateTime();
     sqlite3_stmt* stmt;
-    const char* sql = "INSERT INTO daybook (date, entry_type, amount, direction, notes) VALUES (?, ?, ?, ?, ?);";
+    const char* sql = "INSERT INTO daybook (date, entry_type, amount, direction, session_id, notes) VALUES (?, ?, ?, ?, ?, ?);";
     if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK) return {{"error", "Failed to add entry"}};
 
     sqlite3_bind_text(stmt, 1, dt.c_str(), -1, SQLITE_TRANSIENT);
     sqlite3_bind_text(stmt, 2, entryType.c_str(), -1, SQLITE_TRANSIENT);
     sqlite3_bind_double(stmt, 3, amount);
     sqlite3_bind_text(stmt, 4, direction.c_str(), -1, SQLITE_TRANSIENT);
-    sqlite3_bind_text(stmt, 5, notes.c_str(), -1, SQLITE_TRANSIENT);
+    int sid = currentSessionId();
+    if (sid > 0) sqlite3_bind_int(stmt, 5, sid); else sqlite3_bind_null(stmt, 5);
+    sqlite3_bind_text(stmt, 6, notes.c_str(), -1, SQLITE_TRANSIENT);
 
     sqlite3_step(stmt);
     sqlite3_finalize(stmt);
     return {{"success", true}};
+}
+
+json Database::openCashDrawer(double openingFloat, const std::string& notes) {
+    std::lock_guard<std::mutex> lock(dbMutex);
+    if (openingFloat < 0) return {{"error", "Opening float cannot be negative"}};
+    if (currentSessionId() > 0) return {{"error", "A cash drawer session is already open"}};
+
+    beginTransaction();
+    std::string now = Utils::getCurrentDateTime();
+    sqlite3_stmt* stmt;
+    const char* ins = "INSERT INTO cash_drawer_sessions (opened_at, opening_float, status, notes) VALUES (?, ?, 'OPEN', ?);";
+    if (sqlite3_prepare_v2(db, ins, -1, &stmt, nullptr) != SQLITE_OK) {
+        rollback();
+        return {{"error", "Failed to open cash drawer"}};
+    }
+    sqlite3_bind_text(stmt, 1, now.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_double(stmt, 2, openingFloat);
+    sqlite3_bind_text(stmt, 3, notes.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+    int sessionId = static_cast<int>(lastInsertRowId());
+
+    const char* dbk = "INSERT INTO daybook (date, entry_type, amount, direction, session_id, notes) VALUES (?, 'OPENING_FLOAT', ?, 'IN', ?, ?);";
+    if (sqlite3_prepare_v2(db, dbk, -1, &stmt, nullptr) == SQLITE_OK) {
+        std::string note = "Opening cash float" + (notes.empty() ? std::string() : " — " + notes);
+        sqlite3_bind_text(stmt, 1, now.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_double(stmt, 2, openingFloat);
+        sqlite3_bind_int(stmt, 3, sessionId);
+        sqlite3_bind_text(stmt, 4, note.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_step(stmt);
+        sqlite3_finalize(stmt);
+    }
+    commit();
+    return getCashDrawerStatusInternal();
+}
+
+json Database::closeCashDrawer(double countedAmount, const std::string& notes) {
+    std::lock_guard<std::mutex> lock(dbMutex);
+    int sid = currentSessionId();
+    if (sid == 0) return {{"error", "No cash drawer session is open"}};
+    if (countedAmount < 0) return {{"error", "Counted cash cannot be negative"}};
+
+    json totals = query(
+        "SELECT COALESCE(SUM(CASE WHEN direction = 'IN' THEN amount ELSE -amount END), 0) AS expected, "
+        "COALESCE(SUM(CASE WHEN direction = 'IN' THEN amount ELSE 0 END), 0) AS total_in, "
+        "COALESCE(SUM(CASE WHEN direction = 'OUT' THEN amount ELSE 0 END), 0) AS total_out "
+        "FROM daybook WHERE session_id = " + std::to_string(sid) + ";");
+    double expected = totals.empty() ? 0.0 : totals[0].value("expected", 0.0);
+    double variance = countedAmount - expected;
+    std::string now = Utils::getCurrentDateTime();
+
+    std::string finalNotes = notes;
+    if (!finalNotes.empty()) {
+        json session = query("SELECT notes FROM cash_drawer_sessions WHERE id = " + std::to_string(sid) + ";");
+        if (!session.empty() && !session[0]["notes"].is_null() && !session[0]["notes"].get<std::string>().empty()) {
+            finalNotes = session[0]["notes"].get<std::string>() + " | " + notes;
+        }
+    }
+    execute("UPDATE cash_drawer_sessions SET closed_at = " + sqlQuote(now) +
+            ", expected_closing = " + std::to_string(expected) +
+            ", counted_closing = " + std::to_string(countedAmount) +
+            ", variance = " + std::to_string(variance) +
+            ", status = 'CLOSED', notes = " + sqlQuote(finalNotes) +
+            " WHERE id = " + std::to_string(sid) + ";");
+    return {{"success", true}, {"session_id", sid}, {"expected_closing", expected},
+            {"counted_closing", countedAmount}, {"variance", variance}};
+}
+
+json Database::getCashDrawerStatus() {
+    std::lock_guard<std::mutex> lock(dbMutex);
+    return getCashDrawerStatusInternal();
+}
+
+json Database::getCashDrawerStatusInternal() {
+    int sid = currentSessionId();
+    if (sid == 0) {
+        return {{"session", nullptr}, {"expected_balance", 0.0}, {"total_in", 0.0},
+                {"total_out", 0.0}, {"movements", json::array()}, {"breakdown", json::object()}};
+    }
+
+    json sessionRows = query("SELECT * FROM cash_drawer_sessions WHERE id = " + std::to_string(sid) + ";");
+    json movements = query("SELECT * FROM daybook WHERE session_id = " + std::to_string(sid) + " ORDER BY id ASC;");
+    json totals = query(
+        "SELECT COALESCE(SUM(CASE WHEN direction = 'IN' THEN amount ELSE -amount END), 0) AS expected, "
+        "COALESCE(SUM(CASE WHEN direction = 'IN' THEN amount ELSE 0 END), 0) AS total_in, "
+        "COALESCE(SUM(CASE WHEN direction = 'OUT' THEN amount ELSE 0 END), 0) AS total_out "
+        "FROM daybook WHERE session_id = " + std::to_string(sid) + ";");
+
+    json breakdown = json::object();
+    for (const auto& movement : movements) {
+        std::string type = movement.value("entry_type", "OTHER");
+        double amount = movement.value("amount", 0.0);
+        bool cashIn = movement.value("direction", "IN") == "IN";
+        if (!breakdown.contains(type)) breakdown[type] = {{"in", 0.0}, {"out", 0.0}};
+        breakdown[type][cashIn ? "in" : "out"] = breakdown[type][cashIn ? "in" : "out"].get<double>() + amount;
+    }
+
+    double expected = totals.empty() ? 0.0 : totals[0].value("expected", 0.0);
+    return {
+        {"session", sessionRows.empty() ? json(nullptr) : sessionRows[0]},
+        {"expected_balance", expected},
+        {"total_in", totals.empty() ? 0.0 : totals[0].value("total_in", 0.0)},
+        {"total_out", totals.empty() ? 0.0 : totals[0].value("total_out", 0.0)},
+        {"movements", movements},
+        {"breakdown", breakdown}
+    };
+}
+
+json Database::getCashDrawerHistory(int limit) {
+    std::lock_guard<std::mutex> lock(dbMutex);
+    return query("SELECT * FROM cash_drawer_sessions WHERE status = 'CLOSED' ORDER BY id DESC LIMIT " +
+                 std::to_string(limit > 0 ? limit : 20) + ";");
+}
+
+json Database::addCashDrawerMovement(const std::string& entryType, double amount, const std::string& direction, const std::string& notes) {
+    {
+        std::lock_guard<std::mutex> lock(dbMutex);
+        if (currentSessionId() == 0) {
+            return {{"error", "Open the cash drawer before recording movements"}};
+        }
+    }
+    return addDaybookEntry(entryType, amount, direction, notes);
 }
 
 // ---------------- DASHBOARD KPIS ----------------
@@ -1509,7 +1690,7 @@ json Database::getDashboardStats() {
     std::string today = Utils::getCurrentDate();
 
     // Today's Sales
-    json salesRes = query("SELECT COALESCE(SUM(total_amount), 0) as today_sales, COALESCE(SUM(paid_amount), 0) as today_cash_collected, COUNT(*) as invoice_count FROM invoices WHERE date LIKE '" + today + "%' AND status = 'COMPLETED';");
+    json salesRes = query("SELECT COALESCE(SUM(total_amount), 0) as today_sales, COALESCE(SUM(paid_amount), 0) as today_cash_collected, COUNT(*) as invoice_count FROM invoices WHERE date LIKE " + sqlQuote(today + "%") + " AND status = 'COMPLETED';");
     double todaySales = salesRes.empty() ? 0.0 : salesRes[0]["today_sales"].get<double>();
     double todayCash = salesRes.empty() ? 0.0 : salesRes[0]["today_cash_collected"].get<double>();
     int64_t billCount = salesRes.empty() ? 0 : salesRes[0]["invoice_count"].get<int64_t>();
@@ -1549,7 +1730,7 @@ json Database::getDashboardStats() {
     }
 
     // Daybook cash drawer summary
-    json dbkRes = query("SELECT COALESCE(SUM(CASE WHEN direction = 'IN' THEN amount ELSE -amount END), 0) as cash_in_drawer FROM daybook WHERE date LIKE '" + today + "%';");
+    json dbkRes = query("SELECT COALESCE(SUM(CASE WHEN direction = 'IN' THEN amount ELSE -amount END), 0) as cash_in_drawer FROM daybook WHERE date LIKE " + sqlQuote(today + "%") + ";");
     double cashInDrawer = dbkRes.empty() ? 0.0 : dbkRes[0]["cash_in_drawer"].get<double>();
 
     return {
@@ -1737,8 +1918,8 @@ void Database::seedInitialDataIfNeeded() {
     execute("INSERT INTO supplier_ledger (supplier_id, date, transaction_type, reference_id, debit, credit, balance, notes) VALUES (2, '" + dt + "', 'OPENING', NULL, 0.0, 24200.0, 24200.0, 'Opening Balance for Month');");
     execute("INSERT INTO supplier_ledger (supplier_id, date, transaction_type, reference_id, debit, credit, balance, notes) VALUES (3, '" + dt + "', 'OPENING', NULL, 0.0, 15800.0, 15800.0, 'Opening Balance for Month');");
 
-    // Seed Daybook Opening Cash Drawer Float
-    execute("INSERT INTO daybook (date, entry_type, amount, direction, notes) VALUES ('" + dt + "', 'OPENING_FLOAT', 15000.0, 'IN', 'Morning Shift Cash Float in Drawer');");
+    // Cash drawer floats are opened explicitly through /api/cash-drawer/open,
+    // so seeded daybook cash is intentionally omitted.
 
     // Convert seeded per-pack sale rates into the canonical per-unit basis
     normalizePriceBasis(*this);

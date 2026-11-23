@@ -115,7 +115,7 @@ export function ReturnBillModal({ isOpen, onClose }: ReturnBillModalProps) {
       const dateStr = new Date().toLocaleString();
       const refundAmount = Number(foundInvoice.total_amount || 0);
 
-      await api.returnInvoice(foundInvoice.id, returnReason);
+      await api.returnInvoice(foundInvoice.id, returnReason, refundMode);
       toast.success(`Invoice #${foundInvoice.invoice_number} successfully returned & restocked!`);
 
       refreshStats();
@@ -263,7 +263,7 @@ export function ReturnBillModal({ isOpen, onClose }: ReturnBillModalProps) {
                     className="btn btn-sm secondaryBtn py-0 px-2 d-flex align-items-center gap-1"
                     style={{ fontSize: '11px', height: '25px' }}
                     onClick={() => {
-                      setInvoiceSearch(inv.invoice_number);
+                      setInvoiceSearch(inv.invoice_number || '');
                       setFoundInvoice(inv);
                     }}
                   >
