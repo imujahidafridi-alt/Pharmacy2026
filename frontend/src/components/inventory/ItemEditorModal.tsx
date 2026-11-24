@@ -40,36 +40,31 @@ export function ItemEditorModal({
   const [isRx, setIsRx] = useState(false);
   const [saleAutoFilled, setSaleAutoFilled] = useState(false);
 
+  const [showHelp, setShowHelp] = useState(false);
+  const [addAndNext, setAddAndNext] = useState(false);
   const [saving, setSaving] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
   const nameInputRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => {
-    if (!isOpen) return;
-    setErrorMessage('');
-
-    if (medicine && medicine.id > 0) {
-      setName(medicine.name || '');
-      setCategory(medicine.category || 'Tablets & Capsules');
-      setBrand(medicine.brand || medicine.manufacturer || '');
-      setGenericName(medicine.generic_name || '');
-      setBarcode(medicine.barcode || '');
-      setCode(medicine.code || '');
-      setRackLocation(medicine.rack_location || '');
-      const size = Number(medicine.pack_size || medicine.pieces_per_strip || 1);
+  const fillForm = (med: Medicine | null) => {
+    if (med && med.id > 0) {
+      setName(med.name || '');
+      setCategory(med.category || 'Tablets & Capsules');
+      setBrand(med.brand || med.manufacturer || '');
+      setGenericName(med.generic_name || '');
+      setBarcode(med.barcode || '');
+      setCode(med.code || '');
+      setRackLocation(med.rack_location || '');
+      const size = Number(med.pack_size || med.pieces_per_strip || 1);
       setPackSizeStr(String(size > 0 ? size : 1));
-      setInitialStockStr('0');
-      const cost = Number(medicine.cost_price || 0);
-      const sale = Number(medicine.sale_price || medicine.min_sale_rate || 0);
-      const mrp = Number(medicine.mrp || sale);
+      const cost = Number(med.cost_price || 0);
+      const sale = Number(med.sale_price || med.min_sale_rate || 0);
+      const mrp = Number(med.mrp || sale);
       setCostPriceStr(cost > 0 ? cost.toFixed(2) : '0.00');
       setMrpStr(mrp > 0 ? mrp.toFixed(2) : '0.00');
       setSalePriceStr(sale > 0 ? sale.toFixed(2) : '0.00');
-      setMinStockStr(String(medicine.min_stock_alert ?? 10));
-      setBatchNumber('');
-      setExpiryDate('');
-      setIsRx(!!medicine.is_prescription_required);
-      setSaleAutoFilled(false);
+      setMinStockStr(String(med.min_stock_alert ?? 10));
+      setIsRx(!!med.is_prescription_required);
     } else {
       setName('');
       setCategory('Tablets & Capsules');
@@ -87,9 +82,15 @@ export function ItemEditorModal({
       setBatchNumber('');
       setExpiryDate('');
       setIsRx(false);
-      setSaleAutoFilled(false);
     }
+    setSaleAutoFilled(false);
+    setShowHelp(false);
+    setErrorMessage('');
+  };
 
+  useEffect(() => {
+    if (!isOpen) return;
+    fillForm(medicine);
     const timer = window.setTimeout(() => {
       nameInputRef.current?.focus();
       nameInputRef.current?.select();
@@ -153,6 +154,7 @@ export function ItemEditorModal({
       );
       return;
     }
+
     setSaving(true);
     try {
       const payload: Partial<Medicine> = {
@@ -180,7 +182,16 @@ export function ItemEditorModal({
         expiry_date: expiryDate,
       };
       await onSave(payload);
-      onClose();
+
+      if (addAndNext && !isEditMode) {
+        fillForm(null);
+        window.setTimeout(() => {
+          nameInputRef.current?.focus();
+          nameInputRef.current?.select();
+        }, 60);
+      } else {
+        onClose();
+      }
     } catch (err: any) {
       setErrorMessage(err.message || 'Could not save this item. Please try again.');
     } finally {
@@ -190,12 +201,12 @@ export function ItemEditorModal({
 
   const row = (label: string, control: React.ReactNode, hint?: string, required = false) => (
     <div className="desktop-form-row">
-      <label className="desktop-form-label">
+      <label className="desktop-form-label" style={{ width: '140px', minWidth: '140px', fontSize: '11px' }}>
         {label} {required && <span className="text-danger">*</span>}
       </label>
       <div className="desktop-form-control d-flex align-items-center gap-2 flex-wrap">
         {control}
-        {hint && <span className="small text-muted" style={{ fontSize: '11px' }}>{hint}</span>}
+        {hint && <span className="small text-muted" style={{ fontSize: '10.5px' }}>{hint}</span>}
       </div>
     </div>
   );
@@ -204,7 +215,7 @@ export function ItemEditorModal({
     value: string,
     onChange: (value: string) => void,
     placeholder: string,
-    width = 200,
+    width = 190,
     extra?: React.InputHTMLAttributes<HTMLInputElement> & { ref?: React.Ref<HTMLInputElement> }
   ) => (
     <input
@@ -224,6 +235,15 @@ export function ItemEditorModal({
     />
   );
 
+  const sectionTitle = (icon: string, label: string, action?: React.ReactNode) => (
+    <div className="d-flex align-items-center justify-content-between mb-2">
+      <span className="fw-bold text-uppercase" style={{ color: 'var(--brand-teal)', fontSize: '10.5px', letterSpacing: '0.08em' }}>
+        <i className={`bi ${icon} me-1`}></i>{label}
+      </span>
+      {action}
+    </div>
+  );
+
   return (
     <Modal
       isOpen={isOpen}
@@ -234,140 +254,157 @@ export function ItemEditorModal({
           <span>{isEditMode ? `Edit ${medicine?.name || 'Item'}` : 'Add a New Item'}</span>
         </span>
       }
-      maxWidth="780px"
+      maxWidth="960px"
       footer={
-        <div className="d-flex justify-content-end gap-2 w-100">
-          <button type="button" className="btn btn-sm secondaryBtn px-3" onClick={onClose} disabled={saving}>
-            Cancel
-          </button>
-          <button type="submit" form="item-editor-form" className="btn btn-sm text-white px-4 fw-bold" disabled={saving}
-            style={{ backgroundColor: '#0F766E', borderColor: '#0F766E', height: '30px', fontSize: '12px' }}>
-            {saving ? 'Saving…' : isEditMode ? 'Save Changes' : 'Add Item'}
-          </button>
+        <div className="d-flex justify-content-between align-items-center w-100">
+          <label className="form-check mb-0 small" style={{ fontSize: '11.5px' }}>
+            <input
+              className="form-check-input"
+              type="checkbox"
+              checked={addAndNext}
+              onChange={(e) => setAddAndNext(e.target.checked)}
+              disabled={isEditMode}
+            />
+            <span className="form-check-label">Add &amp; Next (keep form open)</span>
+          </label>
+          <div className="d-flex gap-2">
+            <button type="button" className="btn btn-sm secondaryBtn px-3" onClick={onClose} disabled={saving}>Cancel</button>
+            <button type="submit" form="item-editor-form" className="btn btn-sm text-white px-4 fw-bold" disabled={saving}
+              style={{ backgroundColor: '#0F766E', borderColor: '#0F766E', height: '30px', fontSize: '12px' }}>
+              {saving ? 'Saving…' : isEditMode ? 'Save Changes' : addAndNext ? 'Add & Next' : 'Add Item'}
+            </button>
+          </div>
         </div>
       }
     >
-      <form id="item-editor-form" onSubmit={handleSubmit} className="d-flex flex-column gap-2" style={{ fontSize: '12px' }}>
-        <div className="alert alert-info py-2 px-3 mb-1" style={{ fontSize: '11.5px' }}>
-          <div className="fw-bold mb-1"><i className="bi bi-info-circle me-1"></i> How prices work</div>
-          <div><strong>Cost (TP)</strong> and <strong>MRP</strong> are for <strong>one full pack</strong>. <strong>Sale rate</strong> is for <strong>one tablet / capsule</strong> at the counter.</div>
-          <div className="mt-1">Example: a strip of 14 tablets — TP Rs 140, MRP Rs 200, Sale Rs 12 per tablet (Rs 168 per strip).</div>
-        </div>
-
+      <form id="item-editor-form" onSubmit={handleSubmit} style={{ fontSize: '12px' }}>
         {errorMessage && (
-          <div className="alert alert-danger py-2 px-3 mb-0 d-flex justify-content-between align-items-center" style={{ fontSize: '12px' }}>
+          <div className="alert alert-danger py-2 px-3 mb-2 d-flex justify-content-between align-items-center" style={{ fontSize: '12px' }}>
             <span><i className="bi bi-exclamation-triangle me-1"></i>{errorMessage}</span>
             <button type="button" className="btn-close btn-close-sm" onClick={() => setErrorMessage('')} aria-label="Dismiss"></button>
           </div>
         )}
 
-        {row('Item Name & Strength', textInput(name, setName, 'e.g. Panadol 500mg Tablets', 320, { ref: nameInputRef, required: true }), 'Write the name printed on the box', true)}
-        {row('Generic / Salt', textInput(genericName, setGenericName, 'e.g. Paracetamol', 250, { list: 'genericList' }), 'Helps staff find substitutes')}
-        <datalist id="genericList">
-          {existingGenerics.map((generic, index) => <option key={index} value={generic} />)}
-        </datalist>
-        {row('Brand / Company', textInput(brand, setBrand, 'e.g. GSK Pakistan', 250), 'Optional')}
-
-        <div className="row g-2">
+        <div className="row g-3">
+          {/* LEFT — item details */}
           <div className="col-md-6">
-            <label className="form-label small fw-semibold mb-1">Category</label>
-            <select className="form-select form-select-sm" value={category} onChange={(e) => setCategory(e.target.value)}
-              style={{ backgroundColor: 'var(--input-bg)', borderColor: 'var(--input-border)', color: 'var(--input-text)' }}>
-              {CATEGORIES.map((cat) => <option key={cat} value={cat}>{cat}</option>)}
-            </select>
+            {sectionTitle('bi-card-text', 'Item Details')}
+
+            {row('Item Name & Strength', textInput(name, setName, 'e.g. Panadol 500mg', 250, { ref: nameInputRef, required: true }), 'name on box', true)}
+            {row('Generic / Salt', textInput(genericName, setGenericName, 'e.g. Paracetamol', 220, { list: 'genericList' }), 'for substitutes')}
+            <datalist id="genericList">
+              {existingGenerics.map((generic, index) => <option key={index} value={generic} />)}
+            </datalist>
+            {row('Brand / Company', textInput(brand, setBrand, 'e.g. GSK Pakistan', 220), 'optional')}
+
+            <div className="row g-2 mt-1">
+              <div className="col-7">
+                <label className="form-label small fw-semibold mb-1">Category</label>
+                <select className="form-select form-select-sm" value={category} onChange={(e) => setCategory(e.target.value)}
+                  style={{ backgroundColor: 'var(--input-bg)', borderColor: 'var(--input-border)', color: 'var(--input-text)' }}>
+                  {CATEGORIES.map((cat) => <option key={cat} value={cat}>{cat}</option>)}
+                </select>
+              </div>
+              <div className="col-5">
+                <label className="form-label small fw-semibold mb-1">Shelf / Rack</label>
+                {textInput(rackLocation, (v) => setRackLocation(v.toUpperCase()), 'e.g. A-01', 140)}
+              </div>
+            </div>
+
+            <div className="mt-2">
+              {row('Barcode', textInput(barcode, setBarcode, 'scan or type', 220), 'optional')}
+              {row('Item Code', textInput(code, setCode, 'auto if blank', 180), 'optional')}
+            </div>
           </div>
+
+          {/* RIGHT — packing, prices, stock */}
           <div className="col-md-6">
-            <label className="form-label small fw-semibold mb-1">Shelf / Rack</label>
-            {textInput(rackLocation, (v) => setRackLocation(v.toUpperCase()), 'e.g. A-01', 200)}
-          </div>
-        </div>
+            {sectionTitle(
+              'bi-cash-coin',
+              'Packing & Prices',
+              <button type="button" className="btn btn-sm btn-link p-0 text-decoration-none"
+                onClick={() => setShowHelp((value) => !value)} title="How prices work">
+                <i className="bi bi-question-circle"></i> <span style={{ fontSize: '10.5px' }}>Prices</span>
+              </button>
+            )}
 
-        {row('Barcode', textInput(barcode, setBarcode, 'Scan or type barcode', 220), 'Optional, but needed for scanner sales')}
-        {row('Item Code', textInput(code, setCode, 'Auto if left blank', 180), 'Optional')}
-
-        <hr className="my-1" />
-        <div className="small fw-bold text-uppercase" style={{ color: 'var(--brand-teal)', fontSize: '10.5px' }}>Packing &amp; Prices</div>
-
-        {row('Pack Size', textInput(packSizeStr, (v) => {
-          const clean = v.replace(/[^0-9]/g, '');
-          setPackSizeStr(clean);
-          if (saleAutoFilled && mrpStr) autoFillSaleFromMrp(mrpStr, clean);
-        }, '10', 90, { inputMode: 'numeric' }), 'Loose units in one full pack', true)}
-
-        {row('Cost / TP (per pack)', textInput(costPriceStr, (v) => setCostPriceStr(v.replace(/[^0-9.]/g, '')), '0.00', 120, { inputMode: 'decimal' }), `Rs. ${costPerUnit.toFixed(2)} per unit`)}
-
-        {row('MRP (per pack)', textInput(mrpStr, (v) => {
-          setMrpStr(v.replace(/[^0-9.]/g, ''));
-          if (!isEditMode && (!salePriceStr || salePriceStr === '0.00' || saleAutoFilled)) autoFillSaleFromMrp(v, packSizeStr);
-        }, '0.00', 120, { inputMode: 'decimal' }), `Rs. ${mrpPerUnit.toFixed(2)} per unit`, true)}
-
-        {row('Sale Rate (per unit)', textInput(salePriceStr, (v) => {
-          setSalePriceStr(v.replace(/[^0-9.]/g, ''));
-          setSaleAutoFilled(false);
-        }, '0.00', 120, { inputMode: 'decimal' }), `Rs. ${salePerPack.toFixed(2)} for a full pack`, true)}
-
-        <div className="d-flex flex-wrap gap-2 mb-1">
-          {storeProfitRs > 0 && (
-            <span className="badge bg-success-subtle text-success border px-2 py-1">
-              Profit Rs. {storeProfitRs.toFixed(2)} per unit ({storeMarginPct.toFixed(1)}%)
-            </span>
-          )}
-          {isBelowCost && (
-            <span className="badge text-bg-danger px-2 py-1">
-              Sale is below cost — you will lose money on each unit
-            </span>
-          )}
-          {isAboveMrp && (
-            <span className="badge text-bg-warning px-2 py-1">
-              Full-pack sale is higher than printed MRP
-            </span>
-          )}
-        </div>
-
-        {isEditMode ? (
-          <div className="alert alert-secondary py-2 px-3 mb-0" style={{ fontSize: '11px' }}>
-            <i className="bi bi-shield-check me-1"></i>
-            Stock is not changed here. Use <strong>Adjust Stock</strong> in the Items list so each change is recorded.
-            {medicine?.created_at ? <> Added on {new Date(medicine.created_at).toLocaleDateString()}.</> : null}
-          </div>
-        ) : (
-          <>
-            <hr className="my-1" />
-            <div className="small fw-bold text-uppercase" style={{ color: 'var(--brand-teal)', fontSize: '10.5px' }}>Opening Stock (optional)</div>
-            <div className="alert alert-light py-2 px-3 mb-1" style={{ fontSize: '11px' }}>
-              Enter how many loose units you have now. <strong>Batch number and expiry are optional</strong> — if you leave them blank, a default batch is created so the item can be sold. You can fill in the real details later from <strong>Batches</strong>. Leave stock at 0 if you will add it through Purchases / GRN.
-            </div>
-            <div className="row g-2">
-              <div className="col-md-4">
-                <label className="form-label small fw-semibold mb-1">Loose Units Now</label>
-                {textInput(initialStockStr, (v) => setInitialStockStr(v.replace(/[^0-9]/g, '')), '0', 110, { inputMode: 'numeric' })}
+            {showHelp && (
+              <div className="alert alert-info py-2 px-3 mb-2" style={{ fontSize: '11px' }}>
+                TP and MRP are for <strong>one full pack</strong>. Sale rate is for <strong>one base unit</strong>. Pack size converts between them.
               </div>
-              <div className="col-md-4">
-                <label className="form-label small fw-semibold mb-1">Batch Number</label>
-                {textInput(batchNumber, setBatchNumber, 'e.g. AUG-2626-A', 180)}
-              </div>
-              <div className="col-md-4">
-                <label className="form-label small fw-semibold mb-1">Expiry Date</label>
-                <input type="date" className="form-control form-control-sm" value={expiryDate} onChange={(e) => setExpiryDate(e.target.value)}
-                  style={{ backgroundColor: 'var(--input-bg)', borderColor: 'var(--input-border)', color: 'var(--input-text)' }} />
-              </div>
-            </div>
-          </>
-        )}
+            )}
 
-        <hr className="my-1" />
-        <div className="row g-2">
-          <div className="col-md-4">
-            <label className="form-label small fw-semibold mb-1">Low Stock Alert</label>
-            <div className="d-flex align-items-center gap-2">
-              {textInput(minStockStr, (v) => setMinStockStr(v.replace(/[^0-9]/g, '')), '10', 80, { inputMode: 'numeric' })}
-              <span className="small text-muted">base units</span>
+            {row('Pack Size', textInput(packSizeStr, (v) => {
+              const clean = v.replace(/[^0-9]/g, '');
+              setPackSizeStr(clean);
+              if (saleAutoFilled && mrpStr) autoFillSaleFromMrp(mrpStr, clean);
+            }, '10', 80, { inputMode: 'numeric' }), 'units per pack', true)}
+
+            {row('Cost / TP', textInput(costPriceStr, (v) => setCostPriceStr(v.replace(/[^0-9.]/g, '')), '0.00', 110, { inputMode: 'decimal' }), `per pack · ${costPerUnit.toFixed(2)}/unit`)}
+            {row('MRP', textInput(mrpStr, (v) => {
+              setMrpStr(v.replace(/[^0-9.]/g, ''));
+              if (!isEditMode && (!salePriceStr || salePriceStr === '0.00' || saleAutoFilled)) autoFillSaleFromMrp(v, packSizeStr);
+            }, '0.00', 110, { inputMode: 'decimal' }), `per pack · ${mrpPerUnit.toFixed(2)}/unit`, true)}
+            {row('Sale Rate', textInput(salePriceStr, (v) => {
+              setSalePriceStr(v.replace(/[^0-9.]/g, ''));
+              setSaleAutoFilled(false);
+            }, '0.00', 110, { inputMode: 'decimal' }), `per unit · ${salePerPack.toFixed(2)}/pack`, true)}
+
+            <div className="d-flex flex-wrap gap-1 mt-1">
+              {storeProfitRs > 0 && (
+                <span className="badge bg-success-subtle text-success border px-2 py-1" style={{ fontSize: '10px' }}>
+                  Profit {storeProfitRs.toFixed(2)}/unit ({storeMarginPct.toFixed(1)}%)
+                </span>
+              )}
+              {isBelowCost && (
+                <span className="badge text-bg-danger px-2 py-1" style={{ fontSize: '10px' }}>Below cost</span>
+              )}
+              {isAboveMrp && (
+                <span className="badge text-bg-warning px-2 py-1" style={{ fontSize: '10px' }}>Above MRP</span>
+              )}
             </div>
-          </div>
-          <div className="col-md-8 d-flex align-items-center">
-            <div className="form-check form-switch">
-              <input className="form-check-input" type="checkbox" id="rxSwitch" checked={isRx} onChange={(e) => setIsRx(e.target.checked)} />
-              <label className="form-check-label small fw-semibold" htmlFor="rxSwitch">Prescription required (Rx)</label>
+
+            <hr className="my-2" />
+            {sectionTitle('bi-box-seam', 'Opening Stock (optional)')}
+
+            {isEditMode ? (
+              <div className="alert alert-secondary py-2 px-3 mb-0" style={{ fontSize: '10.5px' }}>
+                <i className="bi bi-shield-check me-1"></i>
+                Stock is changed with <strong>Adjust Stock</strong>, not here.
+                {medicine?.created_at ? <> Added {new Date(medicine.created_at).toLocaleDateString()}.</> : null}
+              </div>
+            ) : (
+              <div className="row g-2">
+                <div className="col-3">
+                  <label className="form-label small fw-semibold mb-1">Loose Units</label>
+                  {textInput(initialStockStr, (v) => setInitialStockStr(v.replace(/[^0-9]/g, '')), '0', 90, { inputMode: 'numeric' })}
+                </div>
+                <div className="col-5">
+                  <label className="form-label small fw-semibold mb-1">Batch (optional)</label>
+                  {textInput(batchNumber, setBatchNumber, 'auto if blank', 160)}
+                </div>
+                <div className="col-4">
+                  <label className="form-label small fw-semibold mb-1">Expiry (optional)</label>
+                  <input type="date" className="form-control form-control-sm" value={expiryDate} onChange={(e) => setExpiryDate(e.target.value)}
+                    style={{ backgroundColor: 'var(--input-bg)', borderColor: 'var(--input-border)', color: 'var(--input-text)', fontSize: '11px' }} />
+                </div>
+              </div>
+            )}
+
+            <div className="row g-2 mt-2 align-items-end">
+              <div className="col-4">
+                <label className="form-label small fw-semibold mb-1">Low Stock Alert</label>
+                <div className="d-flex align-items-center gap-2">
+                  {textInput(minStockStr, (v) => setMinStockStr(v.replace(/[^0-9]/g, '')), '10', 75, { inputMode: 'numeric' })}
+                  <span className="small text-muted" style={{ fontSize: '10px' }}>units</span>
+                </div>
+              </div>
+              <div className="col-8">
+                <div className="form-check form-switch mb-1">
+                  <input className="form-check-input" type="checkbox" id="rxSwitch" checked={isRx} onChange={(e) => setIsRx(e.target.checked)} />
+                  <label className="form-check-label small fw-semibold" htmlFor="rxSwitch" style={{ fontSize: '11px' }}>Prescription required (Rx)</label>
+                </div>
+              </div>
             </div>
           </div>
         </div>
