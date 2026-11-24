@@ -384,7 +384,7 @@ export function ItemEditorModal({
                 {stockRows.map((row) => (
                   <div key={row.key} className="d-flex align-items-end gap-2">
                     <div style={{ width: '86px', flexShrink: 0 }}>
-                      <label className="form-label small fw-semibold mb-1" style={{ fontSize: '10px' }}>Quantity</label>
+                      <label className="form-label small fw-semibold mb-1" style={{ fontSize: '10px' }}>Current Stock</label>
                       <input
                         type="text"
                         inputMode="numeric"
