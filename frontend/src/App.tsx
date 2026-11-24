@@ -15,6 +15,7 @@ import { ReturnBillModal } from './components/pos/ReturnBillModal';
 export function App() {
   const { theme, toggleTheme, settings, serverOnline, stats } = useApp();
   const [activeTab, setActiveTab] = useState<string>('pos');
+  const [itemFilter, setItemFilter] = useState<'all' | 'low'>('all');
   const [currentTime, setCurrentTime] = useState<string>(() => new Date().toLocaleTimeString());
   const [isReturnModalOpen, setIsReturnModalOpen] = useState<boolean>(false);
   const [isFullscreen, setIsFullscreen] = useState<boolean>(() => !!document.fullscreenElement);
@@ -173,7 +174,8 @@ export function App() {
 
   const activeMenuId = MENUS.find((menu) => menu.items.some((item) => item.id === activeTab))?.id;
 
-  const handleTabClick = (tabId: string) => {
+  const handleNavigate = (tabId: string, options?: { lowStock?: boolean }) => {
+    if (tabId === 'items') setItemFilter(options?.lowStock ? 'low' : 'all');
     if (tabId === 'returns') {
       setIsReturnModalOpen(true);
     } else {
@@ -188,7 +190,7 @@ export function App() {
         type="button"
         className={`app-menu-item ${activeTab === item.id ? 'is-active' : ''}`}
         onClick={() => {
-          handleTabClick(item.id);
+          handleNavigate(item.id);
           setOpenMenu(null);
         }}
       >
@@ -315,12 +317,12 @@ export function App() {
         {activeTab === 'pos' && <POSTerminal />}
         {activeTab === 'items' && (
           <div className="h-100 w-100 overflow-hidden">
-            <MedicineMaster />
+            <MedicineMaster lowStockOnly={itemFilter === 'low'} />
           </div>
         )}
         {activeTab === 'stock' && (
           <div className="h-100 p-2 overflow-y-auto">
-            <DashboardOverview onNavigate={setActiveTab} />
+            <DashboardOverview onNavigate={handleNavigate} />
           </div>
         )}
         {activeTab === 'purchases' && (

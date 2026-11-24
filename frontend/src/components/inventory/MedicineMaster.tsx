@@ -8,7 +8,7 @@ import { BatchManageModal } from './BatchManageModal';
 import { CATEGORIES } from '../../utils/catalog';
 import { formatStockDisplay } from '../../utils/stockFormat';
 
-export function MedicineMaster() {
+export function MedicineMaster({ lowStockOnly = false }: { lowStockOnly?: boolean }) {
   const toast = useToast();
 
   const [medicines, setMedicines] = useState<Medicine[]>([]);
@@ -19,6 +19,7 @@ export function MedicineMaster() {
   const [debouncedSearch, setDebouncedSearch] = useState<string>('');
   const [categoryFilter, setCategoryFilter] = useState<string>('All Categories');
   const [statusFilter, setStatusFilter] = useState<string>('1'); // '1' = Active, '0' = Inactive, '-1' = All
+  const [lowStockMode, setLowStockMode] = useState<boolean>(lowStockOnly);
 
   // Selection
   const [selectedId, setSelectedId] = useState<number | null>(null);
@@ -89,7 +90,10 @@ export function MedicineMaster() {
 
   // Sorting + pagination
   const sortedMedicines = useMemo(() => {
-    const copy = [...medicines];
+    const source = lowStockMode
+      ? medicines.filter((m) => (m.total_stock ?? 0) <= (m.min_stock_alert ?? 10))
+      : medicines;
+    const copy = [...source];
     const valueOf = (med: Medicine) => {
       if (sortKey !== 'margin') return (med as any)[sortKey];
       const sale = Number(med.sale_price || med.min_sale_rate || 0);
@@ -107,7 +111,7 @@ export function MedicineMaster() {
       return sortDir === 'asc' ? result : -result;
     });
     return copy;
-  }, [medicines, sortKey, sortDir]);
+  }, [medicines, lowStockMode, sortKey, sortDir]);
 
   const handleSort = (key: string) => {
     if (sortKey === key) {
@@ -350,6 +354,18 @@ export function MedicineMaster() {
 
         {/* Action Buttons */}
         <div className="d-flex align-items-center gap-2 ms-auto">
+          {lowStockMode && (
+            <button
+              type="button"
+              className="btn btn-sm btn-outline-warning d-flex align-items-center gap-1 px-2"
+              onClick={() => setLowStockMode(false)}
+              title="Show all items again"
+              style={{ fontSize: '11.5px', height: '30px', whiteSpace: 'nowrap' }}
+            >
+              <i className="bi bi-exclamation-triangle"></i> Low stock only <i className="bi bi-x"></i>
+            </button>
+          )}
+
           {/* + Add Item Button (Solid Teal #0F766E) */}
           <button
             type="button"
