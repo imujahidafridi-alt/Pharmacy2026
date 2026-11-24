@@ -28,15 +28,16 @@ export function ItemEditorModal({
   const [code, setCode] = useState('');
   const [rackLocation, setRackLocation] = useState('');
 
+  type StockRow = { key: number; quantity: string; batch: string; expiry: string };
+  const newStockRow = (): StockRow => ({ key: Date.now() + Math.random(), quantity: '0', batch: '', expiry: '' });
+
   // Kept as strings so decimal typing and backspacing feel natural
   const [packSizeStr, setPackSizeStr] = useState('1');
-  const [initialStockStr, setInitialStockStr] = useState('0');
+  const [stockRows, setStockRows] = useState<StockRow[]>([newStockRow()]);
   const [costPriceStr, setCostPriceStr] = useState('0.00');
   const [mrpStr, setMrpStr] = useState('0.00');
   const [salePriceStr, setSalePriceStr] = useState('0.00');
   const [minStockStr, setMinStockStr] = useState('10');
-  const [batchNumber, setBatchNumber] = useState('');
-  const [expiryDate, setExpiryDate] = useState('');
   const [isRx, setIsRx] = useState(false);
   const [saleAutoFilled, setSaleAutoFilled] = useState(false);
 
@@ -64,6 +65,7 @@ export function ItemEditorModal({
       setMrpStr(mrp > 0 ? mrp.toFixed(2) : '0.00');
       setSalePriceStr(sale > 0 ? sale.toFixed(2) : '0.00');
       setMinStockStr(String(med.min_stock_alert ?? 10));
+      setStockRows([newStockRow()]);
       setIsRx(!!med.is_prescription_required);
     } else {
       setName('');
@@ -74,13 +76,11 @@ export function ItemEditorModal({
       setCode('');
       setRackLocation('');
       setPackSizeStr('1');
-      setInitialStockStr('0');
+      setStockRows([newStockRow()]);
       setCostPriceStr('0.00');
       setMrpStr('0.00');
       setSalePriceStr('0.00');
       setMinStockStr('10');
-      setBatchNumber('');
-      setExpiryDate('');
       setIsRx(false);
     }
     setSaleAutoFilled(false);
@@ -131,8 +131,15 @@ export function ItemEditorModal({
     const mrpVal = parseFloat(mrpStr) || 0;
     const saleVal = parseFloat(salePriceStr) || 0;
     const packVal = parseInt(packSizeStr, 10) || 1;
-    const initialStock = parseInt(initialStockStr, 10) || 0;
     const alertVal = parseInt(minStockStr, 10) || 0;
+    const openingRows = stockRows
+      .map((row) => ({
+        quantity: parseInt(row.quantity, 10) || 0,
+        batch_number: row.batch.trim(),
+        expiry_date: row.expiry,
+      }))
+      .filter((row) => row.quantity > 0);
+    const initialStock = openingRows.reduce((total, row) => total + row.quantity, 0);
 
     if (costVal < 0 || saleVal < 0 || mrpVal < 0) {
       setErrorMessage('Prices cannot be less than zero.');
@@ -178,8 +185,7 @@ export function ItemEditorModal({
         is_prescription_required: isRx ? 1 : 0,
         is_active: 1,
         initial_stock: initialStock,
-        batch_number: batchNumber.trim(),
-        expiry_date: expiryDate,
+        opening_batches: openingRows,
       };
       await onSave(payload);
 
@@ -374,20 +380,66 @@ export function ItemEditorModal({
                 {medicine?.created_at ? <> Added {new Date(medicine.created_at).toLocaleDateString()}.</> : null}
               </div>
             ) : (
-              <div className="row g-2">
-                <div className="col-3">
-                  <label className="form-label small fw-semibold mb-1">Loose Units</label>
-                  {textInput(initialStockStr, (v) => setInitialStockStr(v.replace(/[^0-9]/g, '')), '0', 90, { inputMode: 'numeric' })}
-                </div>
-                <div className="col-5">
-                  <label className="form-label small fw-semibold mb-1">Batch (optional)</label>
-                  {textInput(batchNumber, setBatchNumber, 'auto if blank', 160)}
-                </div>
-                <div className="col-4">
-                  <label className="form-label small fw-semibold mb-1">Expiry (optional)</label>
-                  <input type="date" className="form-control form-control-sm" value={expiryDate} onChange={(e) => setExpiryDate(e.target.value)}
-                    style={{ backgroundColor: 'var(--input-bg)', borderColor: 'var(--input-border)', color: 'var(--input-text)', fontSize: '11px' }} />
-                </div>
+              <div className="d-flex flex-column gap-2">
+                {stockRows.map((row) => (
+                  <div key={row.key} className="d-flex align-items-end gap-2">
+                    <div style={{ width: '86px', flexShrink: 0 }}>
+                      <label className="form-label small fw-semibold mb-1" style={{ fontSize: '10px' }}>Quantity</label>
+                      <input
+                        type="text"
+                        inputMode="numeric"
+                        className="form-control form-control-sm"
+                        placeholder="0"
+                        value={row.quantity}
+                        onChange={(e) => setStockRows((prev) => prev.map((r) =>
+                          r.key === row.key ? { ...r, quantity: e.target.value.replace(/[^0-9]/g, '') } : r))}
+                        style={{ backgroundColor: 'var(--input-bg)', borderColor: 'var(--input-border)', color: 'var(--input-text)', fontSize: '11px' }}
+                      />
+                    </div>
+                    <div className="flex-grow-1">
+                      <label className="form-label small fw-semibold mb-1" style={{ fontSize: '10px' }}>Batch (optional)</label>
+                      <input
+                        type="text"
+                        className="form-control form-control-sm"
+                        placeholder="auto if blank"
+                        value={row.batch}
+                        onChange={(e) => setStockRows((prev) => prev.map((r) =>
+                          r.key === row.key ? { ...r, batch: e.target.value } : r))}
+                        style={{ backgroundColor: 'var(--input-bg)', borderColor: 'var(--input-border)', color: 'var(--input-text)', fontSize: '11px' }}
+                      />
+                    </div>
+                    <div style={{ width: '152px', flexShrink: 0 }}>
+                      <label className="form-label small fw-semibold mb-1" style={{ fontSize: '10px' }}>Expiry (optional)</label>
+                      <input
+                        type="date"
+                        className="form-control form-control-sm"
+                        value={row.expiry}
+                        onChange={(e) => setStockRows((prev) => prev.map((r) =>
+                          r.key === row.key ? { ...r, expiry: e.target.value } : r))}
+                        style={{ backgroundColor: 'var(--input-bg)', borderColor: 'var(--input-border)', color: 'var(--input-text)', fontSize: '11px' }}
+                      />
+                    </div>
+                    {stockRows.length > 1 && (
+                      <button
+                        type="button"
+                        className="btn btn-sm btn-link text-danger p-1"
+                        title="Remove this batch"
+                        onClick={() => setStockRows((prev) => prev.filter((r) => r.key !== row.key))}
+                        style={{ fontSize: '13px' }}
+                      >
+                        <i className="bi bi-x-circle"></i>
+                      </button>
+                    )}
+                  </div>
+                ))}
+                <button
+                  type="button"
+                  className="btn btn-sm btn-outline-secondary align-self-start py-0 px-2"
+                  style={{ fontSize: '10.5px', height: '24px' }}
+                  onClick={() => setStockRows((prev) => [...prev, newStockRow()])}
+                >
+                  <i className="bi bi-plus-circle me-1"></i>Add another batch
+                </button>
               </div>
             )}
 

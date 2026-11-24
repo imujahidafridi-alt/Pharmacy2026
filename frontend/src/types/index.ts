@@ -28,6 +28,7 @@ export interface Medicine {
   initial_stock?: number;
   batch_number?: string;
   expiry_date?: string;
+  opening_batches?: { quantity: number; batch_number: string; expiry_date: string }[];
   nearest_expiry?: string;
   min_sale_rate?: number;
   max_sale_rate?: number;

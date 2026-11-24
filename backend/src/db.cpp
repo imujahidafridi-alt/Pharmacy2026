@@ -560,31 +560,47 @@ int64_t Database::createMedicine(const json& m) {
     if (rc != SQLITE_DONE) return -1;
     int64_t medId = lastInsertRowId();
 
-    // Stock with no batch/expiry is still accepted: a clearly-marked default
-    // batch is created so a busy cashier can sell immediately. The batch can be
-    // corrected later from the Batches screen. 2099-12-31 means "expiry unknown"
-    // and sorts last in FEFO, so it never jumps ahead of real batches.
-    int initialStock = m.value("initial_stock", 0);
-    std::string batchNo = m.value("batch_number", "");
-    std::string expiry = m.value("expiry_date", "");
-    if (initialStock > 0) {
-        if (batchNo.empty()) batchNo = "DEFAULT-" + std::to_string(medId);
-        if (expiry.size() < 10) {
-            json setting = query("SELECT value FROM settings WHERE key = 'default_batch_expiry';");
-            expiry = setting.empty() ? "2099-12-31" : setting[0].value("value", "2099-12-31");
-        }
-        const char* bSql = "INSERT INTO batches (medicine_id, batch_number, expiry_date, purchase_rate, sale_rate, quantity) VALUES (?, ?, ?, ?, ?, ?);";
+    // One or many opening batches are accepted. Batch/expiry are optional: a
+    // clearly-marked default is created so a busy cashier can sell immediately,
+    // and the real details can be filled later from the Batches screen.
+    // 2099-12-31 means "expiry unknown" and sorts last in FEFO.
+    const char* bSql = "INSERT INTO batches (medicine_id, batch_number, expiry_date, purchase_rate, sale_rate, quantity) VALUES (?, ?, ?, ?, ?, ?);";
+    auto defaultExpiry = [&]() {
+        json setting = query("SELECT value FROM settings WHERE key = 'default_batch_expiry';");
+        return setting.empty() ? std::string("2099-12-31") : setting[0].value("value", "2099-12-31");
+    };
+    auto insertBatch = [&](const std::string& batchNo, const std::string& expiry, int qty) {
+        if (qty <= 0) return;
+        std::string finalBatch = batchNo.empty() ? "DEFAULT-" + std::to_string(medId) : batchNo;
+        std::string finalExpiry = expiry.size() >= 10 ? expiry : defaultExpiry();
         sqlite3_stmt* bStmt;
         if (sqlite3_prepare_v2(db, bSql, -1, &bStmt, nullptr) == SQLITE_OK) {
             sqlite3_bind_int64(bStmt, 1, medId);
-            sqlite3_bind_text(bStmt, 2, batchNo.c_str(), -1, SQLITE_TRANSIENT);
-            sqlite3_bind_text(bStmt, 3, expiry.c_str(), -1, SQLITE_TRANSIENT);
+            sqlite3_bind_text(bStmt, 2, finalBatch.c_str(), -1, SQLITE_TRANSIENT);
+            sqlite3_bind_text(bStmt, 3, finalExpiry.c_str(), -1, SQLITE_TRANSIENT);
             sqlite3_bind_double(bStmt, 4, costPrice > 0 ? costPrice : salePrice * 0.8);
             sqlite3_bind_double(bStmt, 5, salePrice);
-            sqlite3_bind_int(bStmt, 6, initialStock);
+            sqlite3_bind_int(bStmt, 6, qty);
             sqlite3_step(bStmt);
             sqlite3_finalize(bStmt);
         }
+    };
+
+    if (m.contains("opening_batches") && m["opening_batches"].is_array() && !m["opening_batches"].empty()) {
+        int index = 1;
+        for (const auto& row : m["opening_batches"]) {
+            int qty = row.value("quantity", 0);
+            if (qty <= 0) continue;
+            std::string rowBatch = row.value("batch_number", "");
+            if (rowBatch.empty()) {
+                rowBatch = "DEFAULT-" + std::to_string(medId) + "-" + std::to_string(index);
+            }
+            insertBatch(rowBatch, row.value("expiry_date", ""), qty);
+            index++;
+        }
+    } else {
+        // Backward-compatible single-batch path for older API callers
+        insertBatch(m.value("batch_number", ""), m.value("expiry_date", ""), m.value("initial_stock", 0));
     }
 
     return medId;
