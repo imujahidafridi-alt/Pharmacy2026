@@ -292,7 +292,7 @@ export function ItemEditorModal({
           const clean = v.replace(/[^0-9]/g, '');
           setPackSizeStr(clean);
           if (saleAutoFilled && mrpStr) autoFillSaleFromMrp(mrpStr, clean);
-        }, '10', 90, { inputMode: 'numeric' }), 'Small units in one pack (e.g. 14 for a 2×7 strip)', true)}
+        }, '10', 90, { inputMode: 'numeric' }), 'Loose units in one full pack', true)}
 
         {row('Cost / TP (per pack)', textInput(costPriceStr, (v) => setCostPriceStr(v.replace(/[^0-9.]/g, '')), '0.00', 120, { inputMode: 'decimal' }), `Rs. ${costPerUnit.toFixed(2)} per unit`)}
 
