@@ -140,6 +140,17 @@ export const api = {
   // Dashboard Reports
   getDashboardStats: () => request('/reports/dashboard'),
 
+  // Backup & Recovery
+  getBackupStatus: () => request('/backup/status'),
+  listBackups: (limit = 50) => request(`/backup/list?limit=${limit}`),
+  createBackup: (label = 'Manual backup') =>
+    request('/backup/create', { method: 'POST', body: JSON.stringify({ label }) }),
+  restoreBackup: (filename: string, confirmation: string) =>
+    request('/backup/restore', { method: 'POST', body: JSON.stringify({ filename, confirmation }) }),
+  deleteBackup: (filename: string) =>
+    request(`/backup/${encodeURIComponent(filename)}`, { method: 'DELETE' }),
+  backupDownloadUrl: (filename: string) => `/api/backup/download/${encodeURIComponent(filename)}`,
+
   // Settings
   getSettings: () => request('/settings'),
   updateSettings: (data: any) => request('/settings', { method: 'POST', body: JSON.stringify(data) }),

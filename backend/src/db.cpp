@@ -2,6 +2,15 @@
 #include "../include/utils.hpp"
 #include <iostream>
 #include <sstream>
+#include <filesystem>
+#include <fstream>
+#include <chrono>
+#include <thread>
+#include <cctype>
+#define OPENSSL_SUPPRESS_DEPRECATED
+#include <openssl/sha.h>
+
+namespace fs = std::filesystem;
 
 Database& Database::getInstance() {
     static Database instance;
@@ -50,6 +59,63 @@ static std::string sqlQuote(const std::string& value) {
     }
     out.push_back('\'');
     return out;
+}
+
+static fs::path backupDirectory() {
+    fs::path dir = "backups";
+    std::error_code error;
+    fs::create_directories(dir, error);
+    return dir;
+}
+
+static bool validBackupName(const std::string& name) {
+    if (name.empty() || name.find("..") != std::string::npos ||
+        name.find('/') != std::string::npos || name.find('\\') != std::string::npos) return false;
+    if (name.rfind("pharmacy-", 0) != 0) return false;
+    if (name.size() < 22 || name.substr(name.size() - 3) != ".db") return false;
+    for (unsigned char c : name) {
+        if (!std::isdigit(c) && c != '-' && c != '.' && !(c >= 'a' && c <= 'z')) return false;
+    }
+    return true;
+}
+
+static std::string sha256File(const fs::path& path) {
+    std::ifstream file(path, std::ios::binary);
+    if (!file) return "";
+    SHA256_CTX context;
+    SHA256_Init(&context);
+    char buffer[65536];
+    while (file.read(buffer, sizeof(buffer)) || file.gcount() > 0) {
+        SHA256_Update(&context, buffer, static_cast<size_t>(file.gcount()));
+    }
+    unsigned char digest[SHA256_DIGEST_LENGTH];
+    SHA256_Final(digest, &context);
+    char hex[SHA256_DIGEST_LENGTH * 2 + 1];
+    for (int i = 0; i < SHA256_DIGEST_LENGTH; i++) {
+        std::snprintf(hex + i * 2, 3, "%02x", digest[i]);
+    }
+    return std::string(hex);
+}
+
+static std::string checkIntegrity(const fs::path& path) {
+    sqlite3* checkDb = nullptr;
+    // immutable=1 reads only the main file and never creates WAL sidecars —
+    // this verifies that a copied backup is genuinely standalone.
+    std::string uri = "file:" + path.string() + "?immutable=1";
+    if (sqlite3_open_v2(uri.c_str(), &checkDb, SQLITE_OPEN_READONLY | SQLITE_OPEN_URI, nullptr) != SQLITE_OK) {
+        if (checkDb) sqlite3_close(checkDb);
+        return "unreadable";
+    }
+    sqlite3_stmt* stmt = nullptr;
+    std::string result = "error";
+    if (sqlite3_prepare_v2(checkDb, "PRAGMA integrity_check;", -1, &stmt, nullptr) == SQLITE_OK &&
+        sqlite3_step(stmt) == SQLITE_ROW) {
+        const unsigned char* text = sqlite3_column_text(stmt, 0);
+        result = text ? reinterpret_cast<const char*>(text) : "error";
+    }
+    if (stmt) sqlite3_finalize(stmt);
+    sqlite3_close(checkDb);
+    return result;
 }
 
 bool Database::initialize(const std::string& dbPath) {
@@ -344,6 +410,18 @@ bool Database::createTables() {
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP
         );
 
+        CREATE TABLE IF NOT EXISTS backup_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            filename TEXT NOT NULL UNIQUE,
+            label TEXT,
+            kind TEXT DEFAULT 'manual',
+            created_at TEXT NOT NULL,
+            size_bytes INTEGER NOT NULL,
+            checksum TEXT,
+            integrity TEXT,
+            notes TEXT
+        );
+
         CREATE TABLE IF NOT EXISTS parked_invoices (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             customer_name TEXT,
@@ -358,6 +436,9 @@ bool Database::createTables() {
     )";
 
     bool ok = execute(schema);
+    execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('backup_auto_enabled', '0');");
+    execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('backup_interval_hours', '6');");
+    execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('backup_retention_count', '10');");
     // Safe column migrations for existing databases
     execute("ALTER TABLE medicines ADD COLUMN code TEXT;");
     execute("ALTER TABLE medicines ADD COLUMN brand TEXT;");
@@ -1867,6 +1948,236 @@ bool Database::updateSetting(const std::string& key, const std::string& value) {
     int rc = sqlite3_step(stmt);
     sqlite3_finalize(stmt);
     return rc == SQLITE_DONE;
+}
+
+void Database::pruneBackups() {
+    // Caller holds dbMutex. Keeps the newest N manual/auto backups.
+    json setting = query("SELECT value FROM settings WHERE key = 'backup_retention_count';");
+    int keep = setting.empty() ? 10 : std::atoi(setting[0].value("value", "10").c_str());
+    if (keep < 1) keep = 1;
+    if (keep > 100) keep = 100;
+
+    json rows = query("SELECT filename FROM backup_history WHERE kind != 'pre-restore' ORDER BY id DESC;");
+    for (size_t i = keep; i < rows.size(); i++) {
+        std::string file = rows[i].value("filename", "");
+        if (!validBackupName(file)) continue;
+        std::error_code error;
+        fs::path path = backupDirectory() / file;
+        fs::remove(path, error);
+        fs::remove(fs::path(path.string() + "-wal"), error);
+        fs::remove(fs::path(path.string() + "-shm"), error);
+        execute("DELETE FROM backup_history WHERE filename = " + sqlQuote(file) + ";");
+    }
+}
+
+json Database::createBackupInternal(const std::string& label, const std::string& kind) {
+    // Caller holds dbMutex
+    fs::path dir = backupDirectory();
+    std::time_t now = std::time(nullptr);
+    std::tm timeInfo{};
+#if defined(_WIN32)
+    localtime_s(&timeInfo, &now);
+#else
+    localtime_r(&now, &timeInfo);
+#endif
+    char stamp[32];
+    std::strftime(stamp, sizeof(stamp), "%Y%m%d-%H%M%S", &timeInfo);
+    static std::random_device randomDevice;
+    static std::mt19937 generator(randomDevice());
+    std::uniform_int_distribution<int> distribution(1000, 9999);
+    std::string filename = "pharmacy-" + std::string(stamp) + "-" + std::to_string(distribution(generator)) + ".db";
+
+    fs::path temporary = dir / (filename + ".tmp");
+    fs::path finalPath = dir / filename;
+    std::error_code error;
+    fs::remove(temporary, error);
+
+    sqlite3* destination = nullptr;
+    if (sqlite3_open_v2(temporary.string().c_str(), &destination,
+                        SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, nullptr) != SQLITE_OK) {
+        if (destination) sqlite3_close(destination);
+        return {{"error", "Could not create the backup file"}};
+    }
+
+    sqlite3_backup* backup = sqlite3_backup_init(destination, "main", db, "main");
+    if (!backup) {
+        sqlite3_close(destination);
+        fs::remove(temporary, error);
+        return {{"error", "Could not start the database backup"}};
+    }
+
+    int step = SQLITE_OK;
+    do {
+        step = sqlite3_backup_step(backup, 200);
+        if (step == SQLITE_BUSY || step == SQLITE_LOCKED) sqlite3_sleep(20);
+    } while (step == SQLITE_OK || step == SQLITE_BUSY || step == SQLITE_LOCKED);
+
+    int finished = sqlite3_backup_finish(backup);
+    sqlite3_close(destination);
+    if (step != SQLITE_DONE || finished != SQLITE_OK) {
+        fs::remove(temporary, error);
+        return {{"error", "Database backup did not finish cleanly"}};
+    }
+
+    fs::rename(temporary, finalPath, error);
+    if (error) {
+        fs::remove(temporary, error);
+        return {{"error", "Could not save the backup file"}};
+    }
+
+    // A backup must be one self-contained file that can be copied to a USB
+    // drive. Convert it out of WAL mode and checkpoint before recording it.
+    sqlite3* finalizeDb = nullptr;
+    if (sqlite3_open(finalPath.string().c_str(), &finalizeDb) == SQLITE_OK) {
+        sqlite3_exec(finalizeDb, "PRAGMA journal_mode=DELETE; PRAGMA wal_checkpoint(TRUNCATE);", nullptr, nullptr, nullptr);
+        sqlite3_close(finalizeDb);
+    }
+    fs::remove(fs::path(finalPath.string() + "-wal"), error);
+    fs::remove(fs::path(finalPath.string() + "-shm"), error);
+    fs::remove(fs::path(finalPath.string() + "-journal"), error);
+
+    std::string integrity = checkIntegrity(finalPath);
+    if (integrity != "ok") {
+        fs::remove(finalPath, error);
+        return {{"error", "Backup failed integrity check: " + integrity}};
+    }
+    std::string checksum = sha256File(finalPath);
+    uintmax_t size = 0;
+    try { size = fs::file_size(finalPath); } catch (...) { size = 0; }
+    std::string createdAt = Utils::getCurrentDateTime();
+
+    sqlite3_stmt* stmt = nullptr;
+    const char* sql = "INSERT INTO backup_history (filename, label, kind, created_at, size_bytes, checksum, integrity) VALUES (?, ?, ?, ?, ?, ?, ?);";
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) == SQLITE_OK) {
+        sqlite3_bind_text(stmt, 1, filename.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, 2, label.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, 3, kind.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, 4, createdAt.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_int64(stmt, 5, static_cast<int64_t>(size));
+        sqlite3_bind_text(stmt, 6, checksum.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, 7, integrity.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_step(stmt);
+        sqlite3_finalize(stmt);
+    }
+
+    if (kind != "pre-restore") pruneBackups();
+
+    return {{"success", true}, {"filename", filename}, {"label", label}, {"kind", kind},
+            {"created_at", createdAt}, {"size_bytes", static_cast<int64_t>(size)},
+            {"checksum", checksum}, {"integrity", integrity}};
+}
+
+json Database::createBackup(const std::string& label, const std::string& kind) {
+    std::lock_guard<std::mutex> lock(dbMutex);
+    return createBackupInternal(label, kind);
+}
+
+json Database::listBackups(int limit) {
+    std::lock_guard<std::mutex> lock(dbMutex);
+    json rows = query("SELECT * FROM backup_history ORDER BY id DESC LIMIT " +
+                      std::to_string(limit > 0 ? limit : 50) + ";");
+    fs::path dir = backupDirectory();
+    for (auto& row : rows) {
+        std::string file = row.value("filename", "");
+        row["exists"] = validBackupName(file) && fs::exists(dir / file);
+    }
+    return {{"backups", rows}, {"directory", dir.string()}};
+}
+
+json Database::deleteBackup(const std::string& filename) {
+    std::lock_guard<std::mutex> lock(dbMutex);
+    if (!validBackupName(filename)) return {{"error", "Invalid backup filename"}};
+    std::error_code error;
+    fs::path path = backupDirectory() / filename;
+    fs::remove(path, error);
+    fs::remove(fs::path(path.string() + "-wal"), error);
+    fs::remove(fs::path(path.string() + "-shm"), error);
+    fs::remove(fs::path(path.string() + "-journal"), error);
+    execute("DELETE FROM backup_history WHERE filename = " + sqlQuote(filename) + ";");
+    return {{"success", true}};
+}
+
+json Database::restoreBackup(const std::string& filename, const std::string& confirmation) {
+    std::lock_guard<std::mutex> lock(dbMutex);
+    if (confirmation != "RESTORE") {
+        return {{"error", "Type RESTORE to confirm the restore"}};
+    }
+    if (!validBackupName(filename)) return {{"error", "Invalid backup filename"}};
+    fs::path sourcePath = backupDirectory() / filename;
+    if (!fs::exists(sourcePath)) return {{"error", "Backup file not found"}};
+
+    // Always keep a safety copy of the current data before overwriting it.
+    json safety = createBackupInternal("Before restoring " + filename, "pre-restore");
+    if (safety.contains("error")) return {{"error", "Safety backup failed: " + safety["error"].get<std::string>()}};
+
+    sqlite3* source = nullptr;
+    if (sqlite3_open_v2(sourcePath.string().c_str(), &source, SQLITE_OPEN_READONLY, nullptr) != SQLITE_OK) {
+        if (source) sqlite3_close(source);
+        return {{"error", "Could not open the selected backup"}};
+    }
+    sqlite3_backup* restore = sqlite3_backup_init(db, "main", source, "main");
+    if (!restore) {
+        sqlite3_close(source);
+        return {{"error", "Could not start the restore"}};
+    }
+    int step = SQLITE_OK;
+    do {
+        step = sqlite3_backup_step(restore, 200);
+        if (step == SQLITE_BUSY || step == SQLITE_LOCKED) sqlite3_sleep(20);
+    } while (step == SQLITE_OK || step == SQLITE_BUSY || step == SQLITE_LOCKED);
+    int finished = sqlite3_backup_finish(restore);
+    sqlite3_close(source);
+    if (step != SQLITE_DONE || finished != SQLITE_OK) {
+        return {{"error", "Restore did not finish cleanly"}};
+    }
+
+    execute("PRAGMA wal_checkpoint(TRUNCATE);");
+    std::string restoredAt = Utils::getCurrentDateTime();
+
+    // Restoring from a file replaces backup_history too, so re-record the
+    // safety copy that was just written to disk.
+    std::string safetyFile = safety.value("filename", "");
+    if (!safetyFile.empty()) {
+        execute("INSERT OR REPLACE INTO backup_history (filename, label, kind, created_at, size_bytes, checksum, integrity, notes) VALUES (" +
+                sqlQuote(safetyFile) + ", " + sqlQuote(safety.value("label", "Safety backup")) + ", 'pre-restore', " +
+                sqlQuote(safety.value("created_at", restoredAt)) + ", " + std::to_string(safety.value("size_bytes", 0)) +
+                ", " + sqlQuote(safety.value("checksum", "")) + ", " + sqlQuote(safety.value("integrity", "ok")) +
+                ", 'Created automatically before restore');");
+    }
+
+    execute("INSERT INTO backup_history (filename, label, kind, created_at, size_bytes, checksum, integrity, notes) VALUES (" +
+            sqlQuote(filename) + ", 'Restored database', 'restore', " + sqlQuote(restoredAt) +
+            ", 0, '', 'ok', " + sqlQuote("Safety copy: " + safety.value("filename", "")) + ");");
+
+    return {{"success", true}, {"restored_from", filename},
+            {"safety_backup", safety.value("filename", "")}};
+}
+
+json Database::backupStatus() {
+    std::lock_guard<std::mutex> lock(dbMutex);
+    fs::path dir = backupDirectory();
+    uintmax_t dbSize = 0;
+    uintmax_t walSize = 0;
+    try { dbSize = fs::file_size("pharmacy.db"); } catch (...) {}
+    if (fs::exists("pharmacy.db-wal")) {
+        try { walSize = fs::file_size("pharmacy.db-wal"); } catch (...) {}
+    }
+    json last = query("SELECT filename, label, created_at, size_bytes, integrity FROM backup_history WHERE kind != 'restore' ORDER BY id DESC LIMIT 1;");
+    json count = query("SELECT COUNT(*) AS c FROM backup_history WHERE kind != 'restore';");
+    json autoEnabled = query("SELECT value FROM settings WHERE key = 'backup_auto_enabled';");
+    json interval = query("SELECT value FROM settings WHERE key = 'backup_interval_hours';");
+    json retention = query("SELECT value FROM settings WHERE key = 'backup_retention_count';");
+
+    return {
+        {"directory", dir.string()},
+        {"database_size", static_cast<int64_t>(dbSize)},
+        {"wal_size", static_cast<int64_t>(walSize)},
+        {"backup_count", count.empty() ? 0 : count[0]["c"].get<int>()},
+        {"last_backup", last.empty() ? json(nullptr) : last[0]},
+        {"auto_enabled", !autoEnabled.empty() && autoEnabled[0].value("value", "0") == "1"},
+        {"interval_hours", interval.empty() ? 6 : std::atoi(interval[0].value("value", "6").c_str())},
+        {"retention_count", retention.empty() ? 10 : std::atoi(retention[0].value("value", "10").c_str())}
+    };
 }
 
 // ---------------- SEED INITIAL DATA ----------------

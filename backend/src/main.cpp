@@ -608,6 +608,69 @@ int main(int argc, char* argv[]) {
         }
     });
 
+    // --- Backup & Recovery ---
+    svr.Get("/api/backup/status", [&db](const httplib::Request&, httplib::Response& res) {
+        res.set_content(db.backupStatus().dump(), "application/json");
+    });
+
+    svr.Get("/api/backup/list", [&db](const httplib::Request& req, httplib::Response& res) {
+        int limit = req.has_param("limit") ? std::stoi(req.get_param_value("limit")) : 50;
+        res.set_content(db.listBackups(limit).dump(), "application/json");
+    });
+
+    svr.Post("/api/backup/create", [&db](const httplib::Request& req, httplib::Response& res) {
+        try {
+            json body = json::parse(req.body.empty() ? "{}" : req.body);
+            json result = db.createBackup(body.value("label", "Manual backup"), "manual");
+            if (result.contains("error")) res.status = 400;
+            res.set_content(result.dump(), "application/json");
+        } catch (const std::exception& e) {
+            res.status = 400;
+            res.set_content(json({{"error", e.what()}}).dump(), "application/json");
+        }
+    });
+
+    svr.Post("/api/backup/restore", [&db](const httplib::Request& req, httplib::Response& res) {
+        try {
+            json body = json::parse(req.body);
+            json result = db.restoreBackup(body.value("filename", ""), body.value("confirmation", ""));
+            if (result.contains("error")) res.status = 400;
+            res.set_content(result.dump(), "application/json");
+        } catch (const std::exception& e) {
+            res.status = 400;
+            res.set_content(json({{"error", e.what()}}).dump(), "application/json");
+        }
+    });
+
+    svr.Delete(R"(/api/backup/([^/]+))", [&db](const httplib::Request& req, httplib::Response& res) {
+        json result = db.deleteBackup(req.matches[1]);
+        if (result.contains("error")) res.status = 400;
+        res.set_content(result.dump(), "application/json");
+    });
+
+    svr.Get(R"(/api/backup/download/([^/]+))", [](const httplib::Request& req, httplib::Response& res) {
+        std::string name = req.matches[1];
+        bool valid = name.rfind("pharmacy-", 0) == 0 && name.size() > 22 &&
+                     name.substr(name.size() - 3) == ".db" &&
+                     name.find("..") == std::string::npos &&
+                     name.find('/') == std::string::npos &&
+                     name.find('\\') == std::string::npos;
+        if (!valid) {
+            res.status = 400;
+            res.set_content("{\"error\":\"Invalid backup filename\"}", "application/json");
+            return;
+        }
+        fs::path path = fs::path("backups") / name;
+        if (!fs::exists(path)) {
+            res.status = 404;
+            res.set_content("{\"error\":\"Backup not found\"}", "application/json");
+            return;
+        }
+        res.set_header("Content-Disposition", "attachment; filename=\"" + name + "\"");
+        res.set_file_content(path.string());
+        res.set_header("Content-Type", "application/x-sqlite3");
+    });
+
     // Serve Frontend Static files if available
     std::string distPath = "";
     if (fs::exists("dist") && fs::is_directory("dist")) {
@@ -647,6 +710,36 @@ int main(int argc, char* argv[]) {
             std::cerr << "[Error] Server failed to bind to " << host << ":" << port << std::endl;
         }
     });
+
+    // Optional automatic backups, checked once a minute
+    std::thread backupThread([&db]() {
+        auto lastRun = std::chrono::steady_clock::now();
+        bool firstCheck = true;
+        while (true) {
+            std::this_thread::sleep_for(std::chrono::minutes(1));
+            try {
+                json status = db.backupStatus();
+                if (!status.value("auto_enabled", false)) {
+                    lastRun = std::chrono::steady_clock::now();
+                    continue;
+                }
+                int hours = status.value("interval_hours", 6);
+                if (hours < 1) hours = 1;
+                auto elapsed = std::chrono::duration_cast<std::chrono::hours>(
+                    std::chrono::steady_clock::now() - lastRun).count();
+                if (!firstCheck && elapsed < hours) continue;
+                firstCheck = false;
+                json result = db.createBackup("Automatic backup", "auto");
+                if (!result.contains("error")) {
+                    std::cout << "[Backup] Automatic backup saved: " << result.value("filename", "") << std::endl;
+                }
+                lastRun = std::chrono::steady_clock::now();
+            } catch (const std::exception& e) {
+                std::cerr << "[Backup] Automatic backup failed: " << e.what() << std::endl;
+            }
+        }
+    });
+    backupThread.detach();
 
     // Wait a brief moment for the server socket to bind
     std::this_thread::sleep_for(std::chrono::milliseconds(600));

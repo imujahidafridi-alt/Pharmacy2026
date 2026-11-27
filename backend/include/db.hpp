@@ -94,6 +94,13 @@ public:
     json getSettings();
     bool updateSetting(const std::string& key, const std::string& value);
 
+    // Backup & Recovery
+    json createBackup(const std::string& label, const std::string& kind = "manual");
+    json listBackups(int limit = 50);
+    json deleteBackup(const std::string& filename);
+    json restoreBackup(const std::string& filename, const std::string& confirmation);
+    json backupStatus();
+
     // Seed Data
     void seedInitialDataIfNeeded();
 
@@ -109,4 +116,6 @@ private:
     json getInvoiceByIdInternal(int id); // called with dbMutex already held
     int currentSessionId();              // called with dbMutex already held
     json getCashDrawerStatusInternal();  // called with dbMutex already held
+    json createBackupInternal(const std::string& label, const std::string& kind); // dbMutex held
+    void pruneBackups();                                                         // dbMutex held
 };

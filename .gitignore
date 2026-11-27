@@ -17,6 +17,9 @@ backend/err.txt
 backend/out.txt
 backend/server_log.txt
 
+# Backup files (local copies of live data)
+backend/backups/
+
 # Build output
 backend/dist/
 frontend/dist/

@@ -54,7 +54,14 @@ A production-ready, ultra-fast Pharmacy Management Application combining a high-
 - Only **physical cash** touches the drawer — Online/Card sales and khata refunds are excluded.
 - Denomination-based closing count with automatic variance and closed-shift history.
 
-### 6. Interface & Navigation
+### 6. Backup & Recovery
+- Consistent SQLite snapshots via the native backup API (safe while the server is running).
+- Every backup is integrity-checked and given a SHA-256 checksum before it is listed.
+- Manual backups with labels, optional scheduled backups, and configurable retention.
+- Download/export a backup file, or restore with a typed `RESTORE` confirmation — a safety copy is always taken first.
+- Backups live in `backend/backups/` (gitignored). Copy them to another disk regularly.
+
+### 7. Interface & Navigation
 - Compact grouped menu bar: **Sale / Inventory / Accounts / System**, with icon-rich dropdowns.
 - Responsive: collapses to a single **Menu** button on narrow windows.
 - Keyboard-first workflows, contextual shortcut guide (`?`), scan feedback, light/dark "Rx Pulse" theme.
@@ -138,7 +145,7 @@ Pharmacy_2026/
 │   │   │   ├── khata/         # CustomerKhataView.tsx, SupplierKhataView.tsx
 │   │   │   ├── inventory/     # MedicineMaster, ItemEditorModal, ExpiryWatchlist
 │   │   │   ├── purchases/     # PurchaseEntry.tsx (GRN)
-│   │   │   └── reports/       # DashboardOverview, DaybookReconciliation, CashDrawerView, SettingsView
+│   │   │   └── reports/       # DashboardOverview, DaybookReconciliation, CashDrawerView, BackupView, SettingsView
 │   │   ├── context/           # AppContext.tsx, ToastContext.tsx
 │   │   ├── services/          # api.ts REST client
 │   │   ├── types/             # index.ts (TypeScript data models & interfaces)

@@ -8,6 +8,7 @@ import { ExpiryWatchlist } from './components/inventory/ExpiryWatchlist';
 import { PurchaseEntry } from './components/purchases/PurchaseEntry';
 import { DaybookReconciliation } from './components/reports/DaybookReconciliation';
 import { CashDrawerView } from './components/reports/CashDrawerView';
+import { BackupView } from './components/reports/BackupView';
 import { DashboardOverview } from './components/reports/DashboardOverview';
 import { SettingsView } from './components/reports/SettingsView';
 import { ReturnBillModal } from './components/pos/ReturnBillModal';
@@ -167,6 +168,7 @@ export function App() {
       label: 'System',
       items: [
         { id: 'reports', label: 'Daybook & Reports', icon: 'bi-journal-text' },
+        { id: 'backup', label: 'Backup & Recovery', icon: 'bi-cloud-download' },
         { id: 'settings', label: 'Settings', icon: 'bi-gear' },
       ],
     },
@@ -353,6 +355,11 @@ export function App() {
         {activeTab === 'reports' && (
           <div className="h-100 p-2 overflow-y-auto">
             <DaybookReconciliation />
+          </div>
+        )}
+        {activeTab === 'backup' && (
+          <div className="h-100 p-2 overflow-y-auto">
+            <BackupView />
           </div>
         )}
         {activeTab === 'settings' && (
