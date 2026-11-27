@@ -1,320 +1,294 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { api } from '../../services/api';
-import { Badge } from '../ui/Badge';
-import { Button } from '../ui/Button';
 import { Modal } from '../ui/Modal';
 import { useToast } from '../../context/ToastContext';
+import { folderCanWrite, getFolderHandle, pickFolder, writeCopyToFolder } from '../../utils/backupFolder';
 
-interface BackupRow {
+interface CopyRow {
   id: number;
   filename: string;
   label: string;
   kind: string;
   created_at: string;
-  size_bytes: number;
-  checksum: string;
   integrity: string;
   exists: boolean;
-  notes?: string;
 }
 
-interface BackupStatus {
-  directory: string;
-  database_size: number;
-  wal_size: number;
-  backup_count: number;
-  last_backup: { filename: string; label: string; created_at: string; integrity: string } | null;
-  auto_enabled: boolean;
-  interval_hours: number;
-  retention_count: number;
-}
-
-const formatBytes = (bytes: number) => {
-  if (!bytes) return '0 B';
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+const when = (value: string) => {
+  const date = new Date(value.replace(' ', 'T'));
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' });
 };
+
+const kindLabel = (kind: string) => {
+  if (kind === 'auto') return 'Automatic';
+  if (kind === 'manual') return 'By you';
+  if (kind === 'pre-restore') return 'Safety copy';
+  return 'Restored';
+};
+
+const SYNCED_KEY = 'pharmacy_synced_copies';
+const getSynced = (): string[] => {
+  try { return JSON.parse(localStorage.getItem(SYNCED_KEY) || '[]'); } catch { return []; }
+};
+const setSynced = (files: string[]) => localStorage.setItem(SYNCED_KEY, JSON.stringify(files));
 
 export function BackupView() {
   const toast = useToast();
-  const [status, setStatus] = useState<BackupStatus | null>(null);
-  const [backups, setBackups] = useState<BackupRow[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [label, setLabel] = useState('');
+  const [copies, setCopies] = useState<CopyRow[]>([]);
+  const [folderHandle, setFolderHandle] = useState<any | null>(null);
+  const [folderName, setFolderName] = useState('');
   const [autoEnabled, setAutoEnabled] = useState(false);
   const [intervalHours, setIntervalHours] = useState(6);
-  const [retentionCount, setRetentionCount] = useState(10);
-  const [savingSettings, setSavingSettings] = useState(false);
-  const [restoreTarget, setRestoreTarget] = useState<BackupRow | null>(null);
-  const [confirmation, setConfirmation] = useState('');
+  const [retention, setRetention] = useState(10);
   const [busy, setBusy] = useState(false);
+  const [useCopy, setUseCopy] = useState<CopyRow | null>(null);
+  const [understood, setUnderstood] = useState(false);
+
+  const syncToFolder = useCallback(async (handle: any, rows: CopyRow[]) => {
+    if (!handle) return;
+    const synced = getSynced();
+    let changed = false;
+    for (const copy of rows) {
+      if (!copy.exists || synced.includes(copy.filename)) continue;
+      try {
+        const response = await fetch(api.backupDownloadUrl(copy.filename));
+        const bytes = await response.arrayBuffer();
+        await writeCopyToFolder(handle, copy.filename, bytes);
+        synced.push(copy.filename);
+        changed = true;
+      } catch {
+        break;
+      }
+    }
+    if (changed) setSynced(synced);
+  }, []);
 
   const load = useCallback(async () => {
-    setLoading(true);
     try {
-      const [current, list] = await Promise.all([api.getBackupStatus(), api.listBackups(50)]);
-      const s = current as BackupStatus;
-      setStatus(s);
-      setBackups((list?.backups as BackupRow[]) || []);
+      const [list, status] = await Promise.all([api.listBackups(50), api.getBackupStatus()]);
+      const rows = ((list as any)?.backups || []) as CopyRow[];
+      setCopies(rows);
+      const s = status as any;
       setAutoEnabled(!!s.auto_enabled);
       setIntervalHours(s.interval_hours || 6);
-      setRetentionCount(s.retention_count || 10);
+      setRetention(s.retention_count || 10);
+
+      const handle = await getFolderHandle();
+      if (await folderCanWrite(handle)) {
+        setFolderHandle(handle);
+        setFolderName(handle.name || 'Chosen folder');
+        void syncToFolder(handle, rows);
+      } else {
+        setFolderHandle(null);
+        setFolderName('');
+      }
     } catch (err: any) {
-      toast.error('Could not load backup information: ' + err.message);
-    } finally {
-      setLoading(false);
+      toast.error('Could not load your copies: ' + err.message);
     }
-  }, [toast]);
+  }, [syncToFolder, toast]);
 
-  useEffect(() => {
-    load();
-    const timer = window.setInterval(load, 30000);
-    return () => window.clearInterval(timer);
-  }, [load]);
+  useEffect(() => { load(); }, [load]);
 
-  const handleCreate = async () => {
-    setBusy(true);
-    try {
-      const result = await api.createBackup(label.trim() || 'Manual backup');
-      toast.success(`Backup saved: ${(result as any).filename}`);
-      setLabel('');
-      await load();
-    } catch (err: any) {
-      toast.error(err.message || 'Backup failed');
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const handleSaveSettings = async () => {
-    setSavingSettings(true);
+  const saveSettings = async (nextAuto: boolean, nextInterval: number, nextRetention: number) => {
+    setAutoEnabled(nextAuto);
+    setIntervalHours(nextInterval);
+    setRetention(nextRetention);
     try {
       await api.updateSettings({
-        backup_auto_enabled: autoEnabled ? '1' : '0',
-        backup_interval_hours: String(intervalHours),
-        backup_retention_count: String(retentionCount),
+        backup_auto_enabled: nextAuto ? '1' : '0',
+        backup_interval_hours: String(nextInterval),
+        backup_retention_count: String(nextRetention),
       });
-      toast.success('Backup settings saved.');
-      await load();
     } catch (err: any) {
-      toast.error(err.message || 'Could not save backup settings');
-    } finally {
-      setSavingSettings(false);
+      toast.error('Could not save: ' + err.message);
     }
   };
 
-  const handleDelete = async (backup: BackupRow) => {
-    if (!window.confirm(`Delete the backup "${backup.filename}"? This cannot be undone.`)) return;
-    try {
-      await api.deleteBackup(backup.filename);
-      toast.success('Backup deleted.');
-      await load();
-    } catch (err: any) {
-      toast.error(err.message || 'Could not delete backup');
-    }
-  };
-
-  const handleRestore = async () => {
-    if (!restoreTarget) return;
-    if (confirmation !== 'RESTORE') {
-      toast.error('Please type RESTORE to confirm.');
-      return;
-    }
+  const handleSaveCopy = async () => {
     setBusy(true);
     try {
-      const result = await api.restoreBackup(restoreTarget.filename, confirmation);
-      toast.success(`Database restored. Safety copy: ${(result as any).safety_backup}`);
-      setRestoreTarget(null);
-      setConfirmation('');
+      const result = await api.createBackup('By you') as any;
+      if (folderHandle) {
+        try {
+          const response = await fetch(api.backupDownloadUrl(result.filename));
+          await writeCopyToFolder(folderHandle, result.filename, await response.arrayBuffer());
+          setSynced([...getSynced(), result.filename]);
+        } catch {
+          toast.info('Copy saved in the app, but not in your chosen folder.');
+        }
+      }
+      toast.success('Copy saved.');
       await load();
     } catch (err: any) {
-      toast.error(err.message || 'Restore failed');
+      toast.error(err.message || 'Could not save a copy');
     } finally {
       setBusy(false);
     }
   };
+
+  const handleChangeFolder = async () => {
+    const handle = await pickFolder();
+    if (!handle) {
+      toast.info('No folder was chosen.');
+      return;
+    }
+    setFolderHandle(handle);
+    setFolderName(handle.name || 'Chosen folder');
+    toast.success('Copies will also go to ' + (handle.name || 'your folder') + '.');
+    void syncToFolder(handle, copies);
+  };
+
+  const handleDelete = async (copy: CopyRow) => {
+    if (!window.confirm(`Delete the copy from ${when(copy.created_at)}?`)) return;
+    try {
+      await api.deleteBackup(copy.filename);
+      setSynced(getSynced().filter((name) => name !== copy.filename));
+      if (folderHandle && typeof folderHandle.removeEntry === 'function') {
+        try { await folderHandle.removeEntry(copy.filename); } catch { /* already gone */ }
+      }
+      toast.success('Copy deleted.');
+      await load();
+    } catch (err: any) {
+      toast.error(err.message || 'Could not delete the copy');
+    }
+  };
+
+  const handleUseCopy = async () => {
+    if (!useCopy || !understood) return;
+    setBusy(true);
+    try {
+      await api.restoreBackup(useCopy.filename, 'RESTORE');
+      toast.success('Your data was restored.');
+      setUseCopy(null);
+      setUnderstood(false);
+      await load();
+    } catch (err: any) {
+      toast.error(err.message || 'Could not use this copy');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const cardClass = 'card shadow-sm border h-100';
 
   return (
     <div className="d-flex flex-column gap-3">
-      <div className="d-flex justify-content-between align-items-center flex-wrap gap-2">
-        <div>
-          <h2 className="fs-4 fw-bold mb-0">Backup &amp; Recovery</h2>
-          <p className="small text-secondary mb-0">Protect your sales, stock and accounts. Copies are kept on this computer.</p>
-        </div>
-        <Button variant="secondary" size="sm" className="secondaryBtn" onClick={load} disabled={loading}>
-          <i className="bi bi-arrow-clockwise me-1"></i> Refresh
-        </Button>
-      </div>
-
-      <div className="alert alert-warning py-2 px-3 mb-0" style={{ fontSize: '12px' }}>
-        <i className="bi bi-shield-exclamation me-1"></i>
-        Backups are saved in <strong>backend/backups</strong> on this computer. Copy one to a USB drive or another disk regularly — a single computer failure can still lose everything.
-      </div>
-
-      {/* Status cards */}
-      <div className="row g-2">
-        <div className="col-6 col-lg-3">
-          <div className="card h-100 shadow-sm border"><div className="card-body p-3">
-            <div className="small text-secondary text-uppercase fw-bold" style={{ fontSize: '10px' }}>Database Size</div>
-            <div className="fs-5 fw-bold">{formatBytes(status?.database_size || 0)}</div>
-          </div></div>
-        </div>
-        <div className="col-6 col-lg-3">
-          <div className="card h-100 shadow-sm border"><div className="card-body p-3">
-            <div className="small text-secondary text-uppercase fw-bold" style={{ fontSize: '10px' }}>Pending WAL</div>
-            <div className="fs-5 fw-bold">{formatBytes(status?.wal_size || 0)}</div>
-          </div></div>
-        </div>
-        <div className="col-6 col-lg-3">
-          <div className="card h-100 shadow-sm border"><div className="card-body p-3">
-            <div className="small text-secondary text-uppercase fw-bold" style={{ fontSize: '10px' }}>Backups Saved</div>
-            <div className="fs-5 fw-bold">{status?.backup_count || 0}</div>
-          </div></div>
-        </div>
-        <div className="col-6 col-lg-3">
-          <div className="card h-100 shadow-sm border"><div className="card-body p-3">
-            <div className="small text-secondary text-uppercase fw-bold" style={{ fontSize: '10px' }}>Last Backup</div>
-            <div className="small fw-bold">{status?.last_backup?.created_at || 'Never'}</div>
-          </div></div>
-        </div>
+      <div>
+        <h2 className="fs-4 fw-bold mb-0">Keep Your Data Safe</h2>
+        <p className="small text-secondary mb-0">Your sales, stock and accounts stay safe.</p>
       </div>
 
       <div className="row g-3">
-        {/* Create backup */}
-        <div className="col-lg-7">
-          <div className="card shadow-sm border h-100">
-            <div className="card-header bg-body-tertiary py-2 px-3 border-bottom fw-bold small">Create a Backup Now</div>
-            <div className="card-body d-flex flex-wrap align-items-end gap-2">
-              <div className="flex-grow-1" style={{ minWidth: '220px' }}>
-                <label className="form-label small fw-semibold mb-1">Label (optional)</label>
-                <input type="text" className="form-control form-control-sm" value={label}
-                  onChange={(e) => setLabel(e.target.value)} placeholder="e.g. End of day"
-                  style={{ backgroundColor: 'var(--input-bg)', borderColor: 'var(--input-border)', color: 'var(--input-text)' }} />
-              </div>
-              <Button variant="primary" size="sm" onClick={handleCreate} disabled={busy}>
-                <i className="bi bi-cloud-download me-1"></i> {busy ? 'Saving…' : 'Create Backup'}
-              </Button>
-              <div className="w-100 small text-muted" style={{ fontSize: '11px' }}>
-                The copy is checked for errors and given a checksum before it is listed.
-              </div>
+        <div className="col-md-6">
+          <div className={cardClass}>
+            <div className="card-body p-3 d-flex flex-column gap-3">
+              <div className="fw-bold fs-6">Save a copy now</div>
+              <button type="button" className="btn btn-lg text-white fw-bold w-100" onClick={handleSaveCopy} disabled={busy}
+                style={{ backgroundColor: '#0F766E', borderColor: '#0F766E' }}>
+                <i className="bi bi-cloud-download me-2"></i>{busy ? 'Saving…' : 'Save Copy'}
+              </button>
+              <div className="small text-success fw-semibold">✓ Checked and ready</div>
             </div>
           </div>
         </div>
 
-        {/* Settings */}
-        <div className="col-lg-5">
-          <div className="card shadow-sm border h-100">
-            <div className="card-header bg-body-tertiary py-2 px-3 border-bottom fw-bold small">Automatic Backups</div>
-            <div className="card-body d-flex flex-column gap-2" style={{ fontSize: '12px' }}>
-              <div className="form-check form-switch">
-                <input className="form-check-input" type="checkbox" id="autoBackupSwitch" checked={autoEnabled}
-                  onChange={(e) => setAutoEnabled(e.target.checked)} />
-                <label className="form-check-label fw-semibold" htmlFor="autoBackupSwitch">Create backups automatically</label>
+        <div className="col-md-6">
+          <div className={cardClass}>
+            <div className="card-body p-3 d-flex flex-column gap-3">
+              <div className="fw-bold fs-6">Where copies are kept</div>
+              <div className="d-flex align-items-center gap-2">
+                <i className="bi bi-folder2-open fs-4 text-warning"></i>
+                <span className="fw-semibold">{folderName || 'This computer only'}</span>
               </div>
-              <div className="row g-2">
-                <div className="col-6">
-                  <label className="form-label small fw-semibold mb-1">Every</label>
-                  <select className="form-select form-select-sm" value={intervalHours} onChange={(e) => setIntervalHours(Number(e.target.value))}
-                    style={{ backgroundColor: 'var(--input-bg)', borderColor: 'var(--input-border)', color: 'var(--input-text)' }}>
-                    {[1, 3, 6, 12, 24].map((h) => <option key={h} value={h}>{h} hours</option>)}
-                  </select>
-                </div>
-                <div className="col-6">
-                  <label className="form-label small fw-semibold mb-1">Keep last</label>
-                  <select className="form-select form-select-sm" value={retentionCount} onChange={(e) => setRetentionCount(Number(e.target.value))}
-                    style={{ backgroundColor: 'var(--input-bg)', borderColor: 'var(--input-border)', color: 'var(--input-text)' }}>
-                    {[3, 5, 10, 20, 50].map((n) => <option key={n} value={n}>{n} backups</option>)}
-                  </select>
-                </div>
-              </div>
-              <div>
-                <Button variant="secondary" size="sm" className="secondaryBtn" onClick={handleSaveSettings} disabled={savingSettings}>
-                  {savingSettings ? 'Saving…' : 'Save Backup Settings'}
-                </Button>
-              </div>
+              <button type="button" className="btn btn-outline-secondary btn-sm px-3" onClick={handleChangeFolder}>
+                <i className="bi bi-folder-plus me-1"></i> Change folder
+              </button>
             </div>
           </div>
         </div>
       </div>
 
-      {/* Backup list */}
-      <div className="card shadow-sm border overflow-hidden">
-        <div className="card-header bg-body-tertiary py-2 px-3 border-bottom fw-bold small">Saved Backups</div>
-        <div className="table-responsive">
-          <table className="table table-sm table-hover align-middle mb-0">
-            <thead className="table-light">
-              <tr>
-                <th>File</th>
-                <th>Label</th>
-                <th>Created</th>
-                <th className="text-end">Size</th>
-                <th>Check</th>
-                <th className="text-end">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {loading ? (
-                <tr><td colSpan={6} className="text-center py-4 text-secondary">Loading backups…</td></tr>
-              ) : backups.length === 0 ? (
-                <tr><td colSpan={6} className="text-center py-4 text-secondary">No backups yet. Create one above.</td></tr>
-              ) : (
-                backups.map((backup) => (
-                  <tr key={backup.id}>
-                    <td className="font-monospace small fw-semibold">{backup.filename}</td>
-                    <td className="small">{backup.label || '—'}</td>
-                    <td className="small text-secondary">{backup.created_at}</td>
-                    <td className="text-end small">{formatBytes(backup.size_bytes)}</td>
-                    <td>
-                      <Badge variant={backup.integrity === 'ok' && backup.exists ? 'healthy' : 'expired'}>
-                        {backup.exists ? backup.integrity : 'missing'}
-                      </Badge>
-                    </td>
-                    <td className="text-end">
-                      <div className="d-inline-flex gap-1">
-                        <a className="btn btn-sm secondaryBtn px-2" href={api.backupDownloadUrl(backup.filename)} title="Download this backup">
-                          <i className="bi bi-download"></i>
-                        </a>
-                        <button type="button" className="btn btn-sm secondaryBtn px-2" disabled={!backup.exists}
-                          onClick={() => { setRestoreTarget(backup); setConfirmation(''); }} title="Restore this backup">
-                          <i className="bi bi-arrow-counterclockwise"></i>
-                        </button>
-                        <button type="button" className="btn btn-sm secondaryBtn px-2" onClick={() => handleDelete(backup)} title="Delete this backup">
-                          <i className="bi bi-trash3"></i>
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
+      <div className={cardClass}>
+        <div className="card-body p-3 d-flex flex-wrap align-items-center gap-3">
+          <div className="fw-bold fs-6 me-auto">Automatic copies</div>
+          <label className="form-check form-switch mb-0 d-flex align-items-center gap-2">
+            <input className="form-check-input" type="checkbox" checked={autoEnabled}
+              onChange={(e) => saveSettings(e.target.checked, intervalHours, retention)} />
+            <span className="small fw-semibold">Save a copy automatically</span>
+          </label>
+          <div className="d-flex align-items-center gap-2">
+            <span className="small text-secondary">Every</span>
+            <select className="form-select form-select-sm" value={intervalHours} disabled={!autoEnabled}
+              onChange={(e) => saveSettings(autoEnabled, Number(e.target.value), retention)}
+              style={{ width: '110px', backgroundColor: 'var(--input-bg)', borderColor: 'var(--input-border)', color: 'var(--input-text)' }}>
+              {[1, 3, 6, 12, 24].map((h) => <option key={h} value={h}>{h} hours</option>)}
+            </select>
+          </div>
+          <div className="d-flex align-items-center gap-2">
+            <span className="small text-secondary">Keep the last</span>
+            <select className="form-select form-select-sm" value={retention}
+              onChange={(e) => saveSettings(autoEnabled, intervalHours, Number(e.target.value))}
+              style={{ width: '90px', backgroundColor: 'var(--input-bg)', borderColor: 'var(--input-border)', color: 'var(--input-text)' }}>
+              {[3, 5, 10, 20, 50].map((n) => <option key={n} value={n}>{n}</option>)}
+            </select>
+          </div>
         </div>
       </div>
 
-      {/* Restore confirmation */}
+      <div className={cardClass}>
+        <div className="card-header bg-body-tertiary py-2 px-3 border-bottom fw-bold">Your copies</div>
+        <div className="list-group list-group-flush">
+          {copies.length === 0 ? (
+            <div className="p-4 text-center text-secondary">No copies yet. Press <strong>Save Copy</strong> above.</div>
+          ) : (
+            copies.map((copy) => (
+              <div className="list-group-item d-flex align-items-center gap-3 py-2 px-3" key={copy.id}>
+                <i className="bi bi-file-earmark-check fs-5 text-success"></i>
+                <div className="flex-grow-1">
+                  <div className="fw-semibold small">{when(copy.created_at)}</div>
+                  <div className="small text-secondary" style={{ fontSize: '11px' }}>
+                    {kindLabel(copy.kind)} {copy.integrity === 'ok' && copy.exists ? '· ✓ Checked' : ''}
+                  </div>
+                </div>
+                <a className="btn btn-sm btn-outline-secondary px-2" href={api.backupDownloadUrl(copy.filename)} title="Open or download this copy">
+                  Open
+                </a>
+                <button type="button" className="btn btn-sm btn-outline-primary px-2" disabled={!copy.exists}
+                  onClick={() => { setUseCopy(copy); setUnderstood(false); }}>
+                  Use
+                </button>
+                <button type="button" className="btn btn-sm btn-outline-danger px-2" onClick={() => handleDelete(copy)}>
+                  ✕
+                </button>
+              </div>
+            ))
+          )}
+        </div>
+      </div>
+
       <Modal
-        isOpen={!!restoreTarget}
-        onClose={() => { setRestoreTarget(null); setConfirmation(''); }}
-        title="Restore Database"
-        maxWidth="520px"
+        isOpen={!!useCopy}
+        onClose={() => { setUseCopy(null); setUnderstood(false); }}
+        title="Use this copy"
+        maxWidth="480px"
         footer={
           <div className="d-flex justify-content-end gap-2 w-100">
-            <Button variant="secondary" onClick={() => { setRestoreTarget(null); setConfirmation(''); }}>Cancel</Button>
-            <Button variant="primary" onClick={handleRestore} disabled={busy || confirmation !== 'RESTORE'}>
-              {busy ? 'Restoring…' : 'Restore Now'}
-            </Button>
+            <button type="button" className="btn btn-sm secondaryBtn px-3" onClick={() => { setUseCopy(null); setUnderstood(false); }}>Cancel</button>
+            <button type="button" className="btn btn-sm btn-danger px-3 fw-bold" disabled={!understood || busy} onClick={handleUseCopy}>
+              {busy ? 'Working…' : 'Use this copy'}
+            </button>
           </div>
         }
       >
-        <div className="alert alert-danger py-2 px-3" style={{ fontSize: '12px' }}>
-          <strong>This replaces all current data.</strong> A safety copy of the current database is created automatically before restoring.
-        </div>
-        <div className="small mb-2">Backup to restore: <strong className="font-monospace">{restoreTarget?.filename}</strong></div>
-        <label className="form-label small fw-semibold mb-1">Type <strong>RESTORE</strong> to confirm</label>
-        <input type="text" className="form-control form-control-sm" value={confirmation}
-          onChange={(e) => setConfirmation(e.target.value)} placeholder="RESTORE"
-          style={{ backgroundColor: 'var(--input-bg)', borderColor: 'var(--input-border)', color: 'var(--input-text)' }} />
+        <p className="mb-2" style={{ fontSize: '13px' }}>
+          This replaces your current data with the copy from <strong>{useCopy ? when(useCopy.created_at) : ''}</strong>.
+        </p>
+        <p className="small text-secondary">A copy of your current data is saved first.</p>
+        <label className="form-check d-flex align-items-center gap-2 mt-3">
+          <input className="form-check-input" type="checkbox" checked={understood} onChange={(e) => setUnderstood(e.target.checked)} />
+          <span className="form-check-label small fw-semibold">I understand</span>
+        </label>
       </Modal>
     </div>
   );
